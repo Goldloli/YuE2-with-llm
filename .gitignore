@@ -45,3 +45,6 @@ oneclick-packages/win-x64/*
 # Dev-only reference material (Suno UI screenshots / local comparison shots)
 ref-suno/
 compare/
+
+# CI staging for release assets
+dist/

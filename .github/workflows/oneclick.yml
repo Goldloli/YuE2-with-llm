@@ -1,0 +1,92 @@
+name: One-click packages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packaging/**"
+      - "web/**"
+      - "src/**"
+      - "tools/**"
+      - "skills/**"
+      - "examples/**"
+      - "licenses/**"
+      - "docs/**"
+      - "pyproject.toml"
+      - "MANIFEST.in"
+      - "README.md"
+      - ".github/workflows/oneclick.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: oneclick
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: win-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Build slim package
+        shell: bash
+        run: python packaging/build_package.py
+      - name: Smoke test and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip_path=$(ls -t oneclick-packages/*.zip | head -n1)
+          base=$(basename "$zip_path" .zip)
+          mkdir -p dist
+          out="dist/${base}-${{ matrix.platform }}.zip"
+          cp "$zip_path" "$out"
+          python packaging/smoke_package.py "$out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oneclick-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 3
+
+  release:
+    name: publish rolling release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Update rolling release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG="oneclick-latest"
+          if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$REPO" \
+              --title "一键包（滚动最新）" \
+              --notes "YuE2 Studio 一键包（双平台源码包，不含模型）。首次启动自动完成环境安装与核心模型下载（默认镜像），其余组件在应用内「模型」页按需下载。"
+          fi
+          for name in $(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name'); do
+            gh release delete-asset "$TAG" "$name" --repo "$REPO" --yes || true
+          done
+          gh release upload "$TAG" dist/* --repo "$REPO" --clobber
+          gh release edit "$TAG" --repo "$REPO" --latest
+          gh release view "$TAG" --repo "$REPO"

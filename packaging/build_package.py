@@ -150,10 +150,12 @@ def self_check(pkg: Path, platform: str):
     if missing:
         raise SystemExit(f"Package is incomplete, missing: {missing}")
     launcher = pkg / "start.command"
-    if not launcher.stat().st_mode & 0o111:
+    if sys.platform != "win32" and not launcher.stat().st_mode & 0o111:
         raise SystemExit("start.command lost its executable bit")
     if shutil.which("bash"):
-        check = subprocess.run(["bash", "-n", str(launcher)], capture_output=True, text=True)
+        # Git Bash on Windows needs forward slashes in the path argument
+        check = subprocess.run(["bash", "-n", str(launcher).replace("\\", "/")],
+                               capture_output=True, text=True)
         if check.returncode != 0:
             raise SystemExit(f"start.command failed syntax check: {check.stderr.strip()}")
 
