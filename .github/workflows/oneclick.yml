@@ -21,6 +21,9 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHONUTF8: "1"
+
 concurrency:
   group: oneclick
   cancel-in-progress: true

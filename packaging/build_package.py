@@ -26,6 +26,11 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+try:  # Windows consoles may default to a legacy code page that cannot print CJK
+    sys.stdout.reconfigure(errors="replace")
+except (AttributeError, ValueError):
+    pass
+
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGING = ROOT / "packaging"
 PACKAGE_NAME = "yue2-studio-oneclick"
