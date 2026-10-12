@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>YuE2 Studio</title>
+<link rel="icon" href="/static/aura.jpg" />
+<link rel="stylesheet" href="/static/vendor/intertight/intertight.css" />
+<link rel="stylesheet" href="/static/vendor/phosphor/regular.css" />
+<link rel="stylesheet" href="/static/vendor/phosphor/fill.css" />
+<link rel="stylesheet" href="/static/styles.css?v=11" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ======================= SIDEBAR ======================= -->
+  <aside id="sidebar">
+    <div class="sb-head">
+      <div class="sb-logo">YuE<sup>2</sup></div>
+    </div>
+    <nav class="sb-nav">
+      <button class="sb-item active" data-nav="create"><i class="ph ph-music-note"></i><span data-i18n="nav.create">Create</span></button>
+      <button class="sb-item" data-nav="library"><i class="ph ph-playlist"></i><span data-i18n="nav.library">Library</span></button>
+      <button class="sb-item" data-nav="models"><i class="ph ph-hard-drives"></i><span data-i18n="nav.models">Models</span></button>
+      <button class="sb-item" data-nav="llm"><i class="ph ph-robot"></i><span data-i18n="nav.llm">LLM Config</span></button>
+      <button class="sb-item sb-user" data-nav="user"><span class="sb-avatar"><i class="ph ph-user"></i></span><span id="sb-username">YuE2 Studio</span></button>
+    </nav>
+    <div class="sb-spacer"></div>
+    <div class="sb-foot">
+      <button class="sb-item" data-nav="notifications"><i class="ph ph-bell"></i><span data-i18n="nav.notifications">Notifications</span><span class="sb-badge" id="jobs-badge" hidden>0</span></button>
+      <button class="sb-item" data-nav="settings"><i class="ph ph-gear"></i><span data-i18n="nav.settings">Settings</span></button>
+      <button class="sb-upgrade" id="status-pill">YuE2-3B</button>
+    </div>
+  </aside>
+
+  <!-- ======================= CREATE PANEL ======================= -->
+  <section id="create-panel" data-mode="simple">
+
+    <div class="cp-modelrow">
+      <div class="cp-mode" id="mode-toggle">
+        <button class="cp-mode-btn active" data-mode="simple" data-i18n="cp.simple">Simple</button>
+        <button class="cp-mode-btn" data-mode="advanced" data-i18n="cp.advanced">Advanced</button>
+      </div>
+      <button class="cp-modelpill" id="model-pill"><span id="model-pill-label">YuE2-3B</span><i class="ph ph-caret-down"></i></button>
+    </div>
+
+    <div class="cp-attach">
+      <button class="cp-attach-btn" id="attach-audio"><i class="ph ph-plus"></i><span data-i18n="cp.audio">Audio</span></button>
+      <button class="cp-attach-btn" id="attach-score"><i class="ph ph-plus"></i><span data-i18n="cp.score">Score</span></button>
+    </div>
+    <div class="cp-attach-chip" id="attach-chip" hidden>
+      <i class="ph ph-music-notes-simple"></i>
+      <span id="attach-chip-name"></span>
+      <button id="attach-chip-clear" data-i18n-title="score.remove" title="Remove score"><i class="ph ph-x"></i></button>
+    </div>
+
+    <div class="cp-scroll">
+      <!-- Simple mode -->
+      <div id="pane-simple">
+        <div class="cp-card">
+          <textarea id="simple-desc" class="cp-textarea tall" maxlength="500" placeholder="Anthemic anime song about summer vibes" data-i18n-ph="cp.simplePh" spellcheck="false"></textarea>
+          <div class="cp-card-foot">
+            <button class="cp-circle" id="simple-plus" data-i18n-title="upload.title" title="Upload audio"><i class="ph ph-plus"></i></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Advanced mode -->
+      <div id="pane-advanced" hidden>
+        <div class="cp-card">
+          <div class="cp-card-head">
+            <button class="cp-collapse" data-collapse="lyrics"><i class="ph ph-caret-down"></i><span data-i18n="cp.lyrics">Lyrics</span></button>
+            <div class="cp-card-tools">
+              <button class="cp-tool" data-i18n-title="tip.editInPlace" title="Edit in place" id="lyrics-focus"><i class="ph ph-pencil-simple"></i></button>
+              <button class="cp-tool" data-i18n-title="tip.expand" title="Expand" id="lyrics-expand"><i class="ph ph-arrows-out-simple"></i></button>
+            </div>
+          </div>
+          <div class="cp-card-body" data-body="lyrics">
+            <textarea id="adv-lyrics" class="cp-textarea lyrics" maxlength="5000" placeholder="Start writing lyrics, or leave this empty for instrumental" data-i18n-ph="cp.lyricsPh" spellcheck="false"></textarea>
+            <div class="cp-card-foot center">
+              <button class="cp-circle" id="lyrics-sparkle" data-i18n-title="tip.exampleLyrics" title="Write example lyrics for me"><i class="ph ph-sparkle"></i></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="cp-card">
+          <div class="cp-card-head">
+            <button class="cp-collapse" data-collapse="styles"><i class="ph ph-caret-down"></i><span data-i18n="cp.styles">Styles</span></button>
+            <div class="cp-card-tools">
+              <button class="cp-tool" id="style-clear" data-i18n-title="tip.clearStyle" title="Clear styles"><i class="ph ph-trash"></i></button>
+            </div>
+          </div>
+          <div class="cp-card-body" data-body="styles">
+            <textarea id="adv-style" class="cp-textarea" maxlength="1000" placeholder="reggae, chorus in minor, woodwinds, pop edm" data-i18n-ph="cp.stylesPh" spellcheck="false"></textarea>
+            <div class="cp-chips" id="style-chips">
+              <button class="cp-chip icon aura" id="style-magic" data-i18n-title="tip.surprise" title="Surprise me"><i class="ph ph-magic-wand"></i></button>
+              <button class="cp-chip icon" id="style-shuffle" data-i18n-title="tip.shuffle" title="Shuffle suggestions"><i class="ph ph-arrows-clockwise"></i></button>
+              <!-- suggestion chips injected -->
+            </div>
+          </div>
+        </div>
+
+        <div class="cp-card">
+          <div class="cp-card-head">
+            <button class="cp-collapse closed" id="more-toggle"><i class="ph ph-caret-right"></i><span data-i18n="cp.more">More Options</span></button>
+            <div class="cp-card-tools">
+              <button class="cp-tool" id="more-reset" data-i18n-title="tip.resetOptions" title="Reset options"><i class="ph ph-trash"></i></button>
+            </div>
+          </div>
+          <div class="cp-more" id="more-body" hidden>
+            <div class="cp-vgender" id="lora-row" hidden>
+              <span class="cp-vgender-label"><span data-i18n="cp.lora">Style adapter (LoRA)</span></span>
+              <button type="button" class="cp-lorapill" id="lora-pick"><span id="lora-label">None</span><i class="ph ph-caret-down"></i></button>
+            </div>
+            <div class="cp-vgender">
+              <span class="cp-vgender-label"><span data-i18n="cp.vgender">Vocal Gender</span> <i class="ph ph-sparkle"></i></span>
+              <span class="cp-vgender-opts" id="vgender-opts">
+                <button type="button" data-vg="male" data-i18n="cp.male">Male</button>
+                <button type="button" data-vg="female" data-i18n="cp.female">Female</button>
+              </span>
+            </div>
+            <div class="cp-field">
+              <label data-i18n="cp.title">Song title</label>
+              <input type="text" id="adv-title" maxlength="80" placeholder="Untitled" data-i18n-ph="cp.titlePh" />
+            </div>
+            <div class="cp-field">
+              <label data-i18n="cp.maxSec">Max length (seconds)</label>
+              <input type="number" id="adv-maxsec" min="5" max="360" placeholder="Auto" data-i18n-ph="cp.cfgPh" />
+            </div>
+            <div class="cp-field-row">
+              <div class="cp-field">
+                <label data-i18n="cp.seed">Seed</label>
+                <input type="number" id="adv-seed" placeholder="Random" data-i18n-ph="cp.seedPh" />
+              </div>
+              <div class="cp-field">
+                <label data-i18n="cp.cfg">CFG scale</label>
+                <input type="number" id="adv-cfg" step="0.5" min="0" max="20" placeholder="Auto" data-i18n-ph="cp.cfgPh" />
+              </div>
+            </div>
+            <label class="cp-instr"><span data-i18n="cp.instrumental">Instrumental</span><span class="switch"><input type="checkbox" id="adv-instrumental" /><span class="switch-ui"></span></span></label>
+            <label class="cp-instr"><span data-i18n="cp.planOnly">Plan only (review the score first)</span><span class="switch"><input type="checkbox" id="adv-planonly" /><span class="switch-ui"></span></span></label>
+            <div class="cp-sub">
+              <button class="cp-collapse" data-collapse="sampling"><i class="ph ph-caret-right"></i><span data-i18n="cp.sampling">Advanced sampling</span></button>
+              <div class="cp-sampling" data-body="sampling" hidden>
+                <div class="cp-field-row">
+                  <div class="cp-field">
+                    <label data-i18n="cp.temperature">Temperature</label>
+                    <input type="number" id="sam-temperature" step="0.05" min="0" max="3" placeholder="1.0" />
+                  </div>
+                  <div class="cp-field">
+                    <label data-i18n="cp.topP">Top-p</label>
+                    <input type="number" id="sam-topp" step="0.05" min="0" max="1" placeholder="0.95" />
+                  </div>
+                </div>
+                <div class="cp-field-row">
+                  <div class="cp-field">
+                    <label data-i18n="cp.topK">Top-k</label>
+                    <input type="number" id="sam-topk" min="1" max="1000" placeholder="100" />
+                  </div>
+                  <div class="cp-field">
+                    <label data-i18n="cp.odeSteps">ODE steps</label>
+                    <input type="number" id="sam-odesteps" min="2" max="64" placeholder="32" />
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button class="cp-morebtn" id="open-batch"><i class="ph ph-stack"></i><span data-i18n="cp.batch">Batch create…</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cp-create">
+      <button class="cp-circle cp-clear" id="clear-form" data-i18n-title="tip.clearForm" title="Clear the form"><i class="ph ph-trash"></i></button>
+      <button id="create-btn" disabled><i class="ph-fill ph-music-note"></i><span data-i18n="cp.create">Create</span></button>
+    </div>
+  </section>
+
+  <!-- ======================= MAIN ======================= -->
+  <main id="main">
+    <!-- Create view: feed -->
+    <div id="view-create">
+      <div class="feed-head">
+        <div class="feed-crumb"><span data-i18n="feed.workspaces">Workspaces</span> <i class="ph ph-caret-right"></i> <span data-i18n="feed.myWorkspace">My Workspace</span></div>
+        <div class="feed-tools">
+          <div class="feed-search"><i class="ph ph-magnifying-glass"></i><input type="text" id="feed-search" placeholder="Search" data-i18n-ph="feed.search" /></div>
+          <button class="feed-pill" id="filters-pill"><i class="ph ph-funnel"></i><span data-i18n="feed.filters">Filters</span><span id="filters-count" hidden></span><i class="ph ph-caret-down"></i></button>
+          <button class="feed-pill" id="sort-pill"><i class="ph ph-arrows-down-up"></i><span id="sort-label">New</span><i class="ph ph-caret-down"></i></button>
+          <button class="feed-pill" id="view-pill"><i class="ph ph-list"></i><span id="view-label">List</span><i class="ph ph-caret-down"></i></button>
+          <button class="feed-pill" id="compare-pill"><i class="ph ph-arrows-left-right"></i><span data-i18n="compare.pill">Compare</span></button>
+          <button class="feed-pill ghost" data-feedtab="liked" data-i18n="feed.liked">Liked</button>
+          <button class="feed-pill ghost active" data-feedtab="all" data-i18n="feed.songs">Songs</button>
+          <button class="feed-pill ghost" data-feedtab="upload" data-i18n="feed.uploads">Uploads</button>
+        </div>
+      </div>
+      <div class="feed-body" id="feed-body">
+        <div id="feed-list"></div>
+        <div id="feed-empty" hidden>
+          <div class="empty-art"><i class="ph ph-music-notes"></i></div>
+          <div class="empty-title" data-i18n="feed.emptyTitle">Create your first song</div>
+          <div class="empty-sub" data-i18n="feed.emptySub">Describe a style on the left and hit Create. Or upload audio and let YuE2 transcribe it into a coverable score.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Library view -->
+    <div id="view-library" hidden>
+      <div class="lib-head">
+        <h1 data-i18n="lib.title">Library</h1>
+        <div class="lib-tabs" id="lib-tabs">
+          <button class="lib-tab active" data-lib="song" data-i18n="feed.songs">Songs</button>
+          <button class="lib-tab" data-lib="upload" data-i18n="feed.uploads">Uploads</button>
+          <button class="lib-tab" data-lib="liked" data-i18n="feed.liked">Liked</button>
+        </div>
+        <div class="feed-tools">
+          <div class="feed-search"><i class="ph ph-magnifying-glass"></i><input type="text" id="lib-search" placeholder="Search" data-i18n-ph="feed.search" /></div>
+        </div>
+      </div>
+      <div class="feed-body"><div id="lib-list"></div>
+        <div id="library-empty" hidden>
+          <div class="empty-art"><i class="ph ph-playlist"></i></div>
+          <div class="empty-title" data-i18n="lib.emptyTitle">Nothing here yet</div>
+          <div class="empty-sub" data-i18n="lib.emptySub">Finished songs land here.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Model manager view -->
+    <div id="view-models" hidden></div>
+
+    <div id="view-llm" hidden></div>
+
+    <!-- Song detail panel (floating, right side) -->
+    <aside id="view-detail">
+      <button class="cp-circle detail-close" id="detail-close" data-i18n-title="tip.close" title="Close"><i class="ph ph-x"></i></button>
+      <div id="detail-content"></div>
+    </aside>
+  </main>
+</div>
+
+<!-- ======================= PLAYER BAR ======================= -->
+<footer id="player" hidden>
+  <div class="pl-left">
+    <div class="pl-cover" id="player-cover"></div>
+    <div class="pl-meta">
+      <div class="pl-title" id="player-title"></div>
+      <div class="pl-artist" id="player-artist">YuE2</div>
+    </div>
+  </div>
+  <div class="pl-center">
+    <div class="pl-buttons">
+      <button class="pl-btn" id="btn-shuffle" data-i18n-title="pl.shuffle" title="Shuffle"><i class="ph ph-shuffle"></i></button>
+      <button class="pl-btn" id="btn-prev" data-i18n-title="pl.prev" title="Previous"><i class="ph-fill ph-skip-back"></i></button>
+      <button class="pl-btn big" id="btn-play" data-i18n-title="pl.play" title="Play"><i class="ph-fill ph-play"></i></button>
+      <button class="pl-btn" id="btn-next" data-i18n-title="pl.next" title="Next"><i class="ph-fill ph-skip-forward"></i></button>
+      <button class="pl-btn" id="btn-repeat" data-i18n-title="pl.repeat" title="Repeat"><i class="ph ph-repeat"></i></button>
+    </div>
+    <div class="pl-progress">
+      <span class="pl-time" id="time-cur">0:00</span>
+      <div class="pl-track" id="player-progress"><div class="pl-fill" id="player-progress-fill"></div><div class="pl-dot" id="player-dot"></div></div>
+      <span class="pl-time" id="time-total">0:00</span>
+    </div>
+  </div>
+  <div class="pl-right">
+    <button class="pl-btn" id="pl-queue" data-i18n-title="pl.queue" title="Queue"><i class="ph ph-list-bullets"></i></button>
+    <button class="pl-btn" id="pl-like" data-i18n-title="pl.like" title="Like"><i class="ph ph-thumbs-up"></i></button>
+    <button class="pl-btn" id="pl-share" data-i18n-title="pl.download" title="Download"><i class="ph ph-share"></i></button>
+    <div class="pl-volume"><i class="ph ph-speaker-high"></i><input type="range" id="volume" min="0" max="1" step="0.01" value="0.9" /></div>
+  </div>
+</footer>
+
+<div id="overlay" hidden><div id="modal"></div></div>
+<div id="ctx-menu" hidden></div>
+<div id="drop-menu" hidden></div>
+<div id="toasts"></div>
+<input type="file" id="file-input" accept="audio/*" hidden />
+<input type="file" id="abc-input" accept=".abc,text/plain" hidden />
+<audio id="audio-el"></audio>
+
+<script src="/static/i18n.js?v=11"></script>
+<script src="/static/app.js?v=11"></script>
+</body>
+</html>

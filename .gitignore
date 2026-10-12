@@ -1,0 +1,47 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv*/
+.env
+.env.*
+!.env.example
+.cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+models/
+outputs/
+web/data/
+runs/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.whl
+*.partial
+.DS_Store
+
+# CodeGraph index
+.codegraph/
+
+# Playwright MCP session artifacts
+.playwright-mcp/
+
+# One-click package artifacts
+oneclick-packages/*
+!oneclick-packages/.gitkeep
+!oneclick-packages/macos
+!oneclick-packages/win-x64
+oneclick-packages/macos/*
+oneclick-packages/win-x64/*
+!oneclick-packages/macos/.gitkeep
+!oneclick-packages/win-x64/.gitkeep
+
+# Agent session data
+.kimi-code/
+
+# Dev-only reference material (Suno UI screenshots / local comparison shots)
+ref-suno/
+compare/
