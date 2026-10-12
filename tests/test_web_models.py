@@ -32,11 +32,15 @@ def test_download_unknown_component(server):
     assert err.value.status_code == 422
 
 
-def test_download_installed_component_conflicts(server):
-    installed = next(c["id"] for c in server.MODEL_COMPONENTS
-                     if all((ROOT / "models" / rel).exists() for rel in c["paths"]))
+def test_download_installed_component_conflicts(server, monkeypatch, tmp_path):
+    (tmp_path / "models" / "probe").mkdir(parents=True)
+    (tmp_path / "models" / "probe" / "model.safetensors").write_bytes(b"x")
+    comp = {"id": "probe", "platform": None, "paths": ["probe/model.safetensors"],
+            "mode": "core"}
+    monkeypatch.setattr(server, "ROOT", tmp_path)
+    monkeypatch.setitem(server.MODEL_COMPONENTS_BY_ID, "probe", comp)
     with pytest.raises(HTTPException) as err:
-        server.models_download(server.ModelDownload(component=installed))
+        server.models_download(server.ModelDownload(component="probe"))
     assert err.value.status_code == 409
 
 
