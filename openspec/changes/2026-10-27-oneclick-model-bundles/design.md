@@ -41,7 +41,7 @@ CI 上没有预置模型，全量下载 + 全量打包意味着 2× 模型体积
 2. 把该组件目录以 STORED 追加进同一个 zip（`zipfile` 支持增量追加，`allowZip64=True`）；
 3. `shutil.rmtree` 删除该组件，再处理下一个。
 
-磁盘峰值 ≈ max(zip 体积 + 单组件体积, 2 × zip 体积)：流式构建阶段是「未完成的 zip + 一个待删组件」，随后切分阶段必须让整份 zip 与全部分卷并存（分卷是 zip 的字节副本），后者才是瓶颈。构建前 `shutil.disk_usage` 预检按 `disk_need() = max(zip 预估 + 最大组件, 2 × zip 预估) + 2 GiB 余量` 判断（本地 `--use-local-models` 不含下载项），不足即以清晰报错退出并提示清理 runner 磁盘。GitHub 托管的标准 runner 只有 14 GB SSD，因此 workflow 先按同一公式对比实测余量，不足时才清理预装工具链（macOS 删 Xcode/模拟器缓存，Windows 删 Android/.NET 缓存），清理后仍不足即快速失败。
+磁盘峰值 ≈ max(zip 体积 + 单组件体积, 2 × zip 体积)：流式构建阶段是「未完成的 zip + 一个待删组件」，随后切分阶段必须让整份 zip 与全部分卷并存（分卷是 zip 的字节副本），后者才是瓶颈。构建前 `shutil.disk_usage` 预检按 `disk_need() = max(zip 预估 + 最大组件, 2 × zip 预估) + 2 GiB 余量` 判断（本地 `--use-local-models` 不含下载项），不足即以清晰报错退出并提示清理 runner 磁盘。GitHub 文档标称标准 runner 为 14 GB SSD，但 2026-10-27 两次 dispatch 实测 `windows-latest` 空闲 109.9 GiB、`macos-latest` 空闲 96.2 GiB（文档数值明显偏保守）。workflow 仍先按同一公式对比实测余量，不足时才清理预装工具链（macOS 删 Xcode/模拟器缓存，Windows 删 Android/.NET 缓存）——两次试跑均判定“磁盘已足够”而跳过清理，该步骤作为镜像瘦身后的兜底；清理后仍不足即快速失败。
 
 ### D3：CI 直连 huggingface.co
 
@@ -79,7 +79,7 @@ CI 上没有预置模型，全量下载 + 全量打包意味着 2× 模型体积
 
 ## Risks / Trade-offs
 
-- [标准 runner 仅 14 GB SSD，macOS/full（切分峰值 ≈53 GiB）与 win-x64/full（≈25 GiB）放不下] → workflow 加「按需释放磁盘」步骤（先测 need/free，不足再删预装工具链，可释放 10–40 GB），预检公式按真实峰值收紧；macOS/full 判定为托管 runner 不可承载，full 两档改由本机 `--use-local-models` 构建后 `gh release upload`（本机模型齐全、磁盘充足），CI 只跑 mini/standard 三档。
+- [标准 runner 磁盘（文档写 14 GB，实测空闲 ≈96–110 GiB）] → 预检公式按真实峰值收紧（`max(zip+组件, 2×zip) + 2 GiB`），workflow 再加「按需释放磁盘」兜底（实测均未触发）；五档峰值最大为 `macos/full` 的 55.2 GiB，实测余量下均可交给 CI 构建，本机 `--use-local-models` 构建保留为离线/降级备选。
 - [HF 直连限流或网络抖动导致长构建失败] → hf_download 已有分块断点与重试；workflow 支持整 job 重跑；下载量在 tag 发布时约 50 GB，属一次性成本。
 - [私仓 macOS 分钟 10× 计费，full 档下载+打包可能 30–60 分钟] → 不挂 push 触发；日常用 dispatch 单档；workflow 头注释显性提示成本。
 - [分卷数量多（full 档 macOS ≈ 14 卷）影响收件人体验] → 使用说明给出复制即用的合并命令 + 校验命令；档位设计本身保证多数用户只需 4.5–7.4 GB 档（3–4 卷）。
