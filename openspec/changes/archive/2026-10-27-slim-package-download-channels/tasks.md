@@ -35,6 +35,6 @@
 
 - [x] 6.1 `pytest`：314 passed / 12 skipped / 1 failed（既有沙箱 pty 用例，与改动无关）；`openspec validate 2026-10-27-slim-package-download-channels --strict` 通过；`actionlint` 对现有 workflow 无新增问题
 - [x] 6.2 本地构建瘦包并冒烟：`build_package.py` 产出 9.0 MiB / 175 条目的 zip，`smoke_package.py` 通过
-- [ ] 6.3 commit + push；确认 `oneclick.yml` 瘦包 CI 双平台绿、`oneclick-latest` 滚动资产更新
-- [ ] 6.4 删除 GitHub release `oneclick-models-latest` 及其试跑资产；确认无 `models-v*` tag
-- [ ] 6.5 归档本变更（`openspec archive`），把 `one-click-packaging` 规格 delta 合入主规格
+- [x] 6.3 commit（d24cd81）+ push；`oneclick.yml` run 40491392197 双平台构建 + 发布全绿，`oneclick-latest` 资产已更新为 20261027 两份瘦包 + sha256
+- [x] 6.4 删除 GitHub release `oneclick-models-latest`（含 tag，10 个试跑资产）；确认无 `models-v*` tag，`oneclick-latest` 保留
+- [x] 6.5 归档本变更（`openspec archive`），把 `one-click-packaging` 规格 delta 合入主规格
