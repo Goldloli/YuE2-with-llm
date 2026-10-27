@@ -196,7 +196,7 @@ jobs:
           files=( *.part-* *.sha256 )
           [ ${#files[@]} -gt 0 ] || { echo "没有可上传的分卷"; exit 1; }
           gh release upload "$REL" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
-          echo "已上传到 $REL：${files[*]}"
+          echo "已上传到 ${REL}: ${files[*]}"
 
   publish:
     name: 草稿转正式
