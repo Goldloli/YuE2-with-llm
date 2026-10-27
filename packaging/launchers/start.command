@@ -7,19 +7,19 @@
 cd "$(dirname "$0")" || exit 1
 
 if [ -x "runtime/bin/python3" ] && [ -d "envs/web" ]; then
-  exec "runtime/bin/python3" tools/start.py --bundled
+  exec "runtime/bin/python3" tools/start.py --bundled "$@"
 fi
 
 # Development checkout / slim package: reuse a venv or the system Python.
 if [ -x ".venv/bin/python" ]; then
-  exec .venv/bin/python tools/start.py
+  exec .venv/bin/python tools/start.py "$@"
 fi
 
 for candidate in python3.13 python3.12 python3.11 python3.10 \
                  /opt/homebrew/bin/python3 /usr/local/bin/python3 python3; do
   if command -v "$candidate" >/dev/null 2>&1; then
     if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
-      exec "$candidate" tools/start.py
+      exec "$candidate" tools/start.py "$@"
     fi
   fi
 done

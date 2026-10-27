@@ -2712,6 +2712,39 @@ def index():
 app.mount("/static", StaticFiles(directory=WEB / "static"), name="static")
 
 
+DEFAULT_PORT = 9086
+
+
+def _valid_port(raw) -> int | None:
+    try:
+        port = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return port if 1 <= port <= 65535 else None
+
+
+def _resolve_port(argv: list[str] | None = None) -> int:
+    """Resolve the local port: ``--port`` > ``YUE2_PORT`` > :data:`DEFAULT_PORT`."""
+    import argparse
+
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--port", dest="port")
+    parsed, _ = parser.parse_known_args(argv)
+    for source, raw in (("--port", parsed.port), ("YUE2_PORT", os.environ.get("YUE2_PORT"))):
+        if raw in (None, ""):
+            continue
+        port = _valid_port(raw)
+        if port is None:
+            print(f"[warn] invalid {source}={raw!r}; using default port {DEFAULT_PORT}",
+                  file=sys.stderr)
+            return DEFAULT_PORT
+        return port
+    return DEFAULT_PORT
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=7860, log_level="info")
+
+    _port = _resolve_port()
+    print(f"YuE2 Studio  →  http://127.0.0.1:{_port}   (Ctrl+C to stop)")
+    uvicorn.run(app, host="127.0.0.1", port=_port, log_level="info")

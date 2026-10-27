@@ -5,7 +5,7 @@
 ## 截图条件
 
 - 视口：**1440 × 900**（CSS 像素，Playwright `page.screenshot({ scale: "css" })`）
-- 服务：本地 `python web/server.py`（`http://127.0.0.1:7860/`）
+- 服务：本地 `python web/server.py`（默认 `http://127.0.0.1:9086/`；可用 `--port` / `YUE2_PORT` 覆盖，重截时请用默认端口）
 - 语言：`en/` 与 `zh/` 各一套（在设置弹窗「界面语言」切换）
 - 日期：2026-10-27（library / detail 使用中性虚构示例数据，2026-10-27 重截；其余 10 张仍为 2026-10-11）
 

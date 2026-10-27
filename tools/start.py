@@ -22,9 +22,48 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VENV = ROOT / ".venv"
-URL = "http://127.0.0.1:7860"
+DEFAULT_PORT = 9086
+PORT = DEFAULT_PORT
+URL = f"http://127.0.0.1:{PORT}"
 BUNDLED_RUNTIME = ROOT / "runtime" / ("python.exe" if os.name == "nt" else "bin/python3")
 BUNDLED_WEB_ENV = ROOT / "envs" / "web"
+
+
+def _valid_port(raw):
+    try:
+        port = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return port if 1 <= port <= 65535 else None
+
+
+def resolve_port(argv=None):
+    """Resolve the local port: ``--port`` > ``YUE2_PORT`` > :data:`DEFAULT_PORT`."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    cli = None
+    for index, value in enumerate(argv):
+        if value == "--port" and index + 1 < len(argv):
+            cli = argv[index + 1]
+        elif value.startswith("--port="):
+            cli = value.split("=", 1)[1]
+    for source, raw in (("--port", cli), ("YUE2_PORT", os.environ.get("YUE2_PORT"))):
+        if raw in (None, ""):
+            continue
+        port = _valid_port(raw)
+        if port is None:
+            print(f"[warn] invalid {source}={raw!r}; using default port {DEFAULT_PORT}",
+                  file=sys.stderr)
+            return DEFAULT_PORT
+        return port
+    return DEFAULT_PORT
+
+
+def set_port(port):
+    """Use *port* for probing, the printed URL, the browser and the server child."""
+    global PORT, URL
+    PORT = port
+    URL = f"http://127.0.0.1:{port}"
+    return port
 
 
 def venv_python():
@@ -76,16 +115,23 @@ def wait_and_open(timeout=90):
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with socket.create_connection(("127.0.0.1", 7860), timeout=1):
+            with socket.create_connection(("127.0.0.1", PORT), timeout=1):
                 webbrowser.open(URL)
                 return
         except OSError:
             time.sleep(0.5)
 
 
+def server_process_env(base=None):
+    """Child-process env carrying the resolved port for ``web/server.py``."""
+    env = dict(os.environ if base is None else base)
+    env["YUE2_PORT"] = str(PORT)
+    return env
+
+
 def run_server(python, env=None):
     proc = subprocess.Popen([str(python), str(ROOT / "web" / "server.py")],
-                            cwd=str(ROOT), env=env)
+                            cwd=str(ROOT), env=server_process_env(env))
     try:
         return proc.wait()
     except KeyboardInterrupt:
@@ -126,9 +172,11 @@ def start_from_source():
     return run_server(py)
 
 
-def main():
-    args = set(sys.argv[1:])
-    if "--bundled" in args or (bundled_ready() and "--legacy" not in args):
+def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    set_port(resolve_port(argv))
+    flags = {value for value in argv if value in ("--bundled", "--legacy")}
+    if "--bundled" in flags or (bundled_ready() and "--legacy" not in flags):
         if bundled_ready():
             return start_bundled()
         print("Bundled runtime is missing; falling back to the development setup.")

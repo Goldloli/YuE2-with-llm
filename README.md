@@ -42,7 +42,9 @@
    | Windows x64 | `yue2-studio-oneclick-<日期>-win-x64.zip` | `start.bat` | 约 272 MB |
 
 3. 解压后双击启动器（macOS 首次可能需要右键 → 打开，或 `chmod +x start.command`）。
-   **包内自带 Python 运行时与依赖，不联网、不安装任何东西**，数秒后浏览器自动打开 `http://127.0.0.1:7860`。
+   **包内自带 Python 运行时与依赖，不联网、不安装任何东西**，数秒后浏览器自动打开 `http://127.0.0.1:9086`。
+   > 默认端口 **9086**（不再使用上游默认的 7860）。如与本机其它服务冲突，可用环境变量或启动器参数换端口：
+   > `YUE2_PORT=9090 ./start.command`（Windows：`set YUE2_PORT=9090` 后运行 `start.bat`），或 `./start.command --port 9090`。
 4. 页面停在「模型」页：选择下载源（**国内镜像** / **国际直连**），下载「核心模型」（约 7.3 GB），完成后即可创作。
 5. Windows + NVIDIA 显卡：在同一页安装 **CUDA 加速套件**（约 2.9 GB，分卷下载、断点续传），装完**重启应用**生效。
 
@@ -69,7 +71,7 @@ cd YuE2-with-llm
 python3.12 -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 python -m pip install -U pip
 python -m pip install -e ".[web]"
-python tools/start.py        # 打开 http://127.0.0.1:7860
+python tools/start.py        # 打开 http://127.0.0.1:9086（可用 --port / YUE2_PORT 覆盖）
 ```
 
 也可以先 `python tools/bootstrap.py --yes` 自动准备虚拟环境（模型仍然在应用内下载）。
