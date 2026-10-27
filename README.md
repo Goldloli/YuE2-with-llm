@@ -133,7 +133,7 @@ python tools/hf_download.py mlx-8bit                   # macOS MLX 变体（mlx-
 | 国内镜像（默认） | `hf-mirror.com` | 中国大陆，直连即可 |
 | 国际直连 | `huggingface.co` | 海外，或可自由访问外网 |
 
-选择会持久化在本机设置（`web/data/settings.json`），页面切换与命令行 `--source` 共用同一份配置；下载支持断点续传、取消与 sha256 校验。
+选择会持久化在本机设置（`web/data/settings.json`），页面切换与命令行 `--source` 共用同一份配置；下载支持断点续传、取消与 sha256 校验，并支持**多个组件同时下载**（最多 3 个，进度/取消互不影响）。
 
 ## 自包含一键包是怎么构建的（开发者）
 

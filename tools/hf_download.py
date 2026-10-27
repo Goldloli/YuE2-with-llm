@@ -39,6 +39,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEST = ROOT / "models"
+
+
+def _display(path: Path) -> str:
+    """Relative path for logs; never fail for paths outside the repository."""
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
 SETTINGS_FILE = ROOT / "web" / "data" / "settings.json"
 
 CHANNELS = {
@@ -235,6 +243,12 @@ def head_size(repo, name):
 
 
 def download_small(repo, name, out: Path, retries=5):
+    """Download a small file atomically.
+
+    Concurrent downloads (e.g. two MLX variants sharing the same code/config files)
+    must never see a half-written target, so the bytes go to a per-process temp file
+    first and only replace `out` once the size (or the whole body) is complete.
+    """
     out.parent.mkdir(parents=True, exist_ok=True)
     remote = None
     try:
@@ -242,20 +256,28 @@ def download_small(repo, name, out: Path, retries=5):
     except (urllib.error.URLError, TimeoutError, OSError):
         remote = None
     if remote is not None and out.exists() and out.stat().st_size == remote:
-        print(f"  skip {out.relative_to(ROOT)} (complete)")
+        print(f"  skip {_display(out)} (complete)")
         return True
+    tmp = out.with_name(f".{out.name}.tmp-{os.getpid()}")
     for attempt in range(retries):
         try:
-            if out.exists():
-                out.unlink()
-            if curl_download(url_for(repo, name), out, retries=2):
-                if remote is None or (out.exists() and out.stat().st_size == remote):
+            if tmp.exists():
+                tmp.unlink()
+            if curl_download(url_for(repo, name), tmp, retries=2):
+                if remote is None or (tmp.exists() and tmp.stat().st_size == remote):
+                    os.replace(tmp, out)
                     return True
-                last = f"size {out.stat().st_size} != {remote}"
+                last = f"size {tmp.stat().st_size if tmp.exists() else 0} != {remote}"
             else:
                 last = "curl failed"
         except RuntimeError as exc:
             last = str(exc)
+        finally:
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
         if attempt == retries - 1:
             print(f"  FAILED {repo}/{name}: {last}")
             return False
@@ -271,7 +293,7 @@ def download_big(repo, name, out: Path, size, retries=6):
         except (urllib.error.URLError, TimeoutError):
             size = 0
     if size and out.exists() and out.stat().st_size == size:
-        print(f"  skip {out.relative_to(ROOT)} (complete)")
+        print(f"  skip {_display(out)} (complete)")
         return True
     parts_dir = out.parent / (out.name + ".parts")
     parts_dir.mkdir(exist_ok=True)
@@ -310,7 +332,7 @@ def download_big(repo, name, out: Path, size, retries=6):
     for part in parts_dir.iterdir():
         part.unlink()
     parts_dir.rmdir()
-    print(f"  done {out.relative_to(ROOT)} ({out.stat().st_size / 2**20:.0f} MiB)")
+    print(f"  done {_display(out)} ({out.stat().st_size / 2**20:.0f} MiB)")
     return True
 
 
@@ -327,7 +349,7 @@ def verify(model_dir: Path, name: str, path: Path):
         for block in iter(lambda: handle.read(1 << 22), b""):
             digest.update(block)
     ok = digest.hexdigest() == expected
-    print(f"  sha256 {'OK' if ok else 'MISMATCH'}: {path.relative_to(ROOT)}")
+    print(f"  sha256 {'OK' if ok else 'MISMATCH'}: {_display(path)}")
     if not ok:
         raise RuntimeError(f"{path} failed hash verification; delete it and retry")
 

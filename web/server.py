@@ -424,68 +424,88 @@ def _component_bytes(component) -> int:
     return sum(_path_bytes(ROOT / "models" / rel) for rel in component["paths"])
 
 
-class DownloadManager:
-    """Runs one `tools/hf_download.py` subprocess at a time, in parallel with jobs."""
+MAX_CONCURRENT_DOWNLOADS = 3
 
-    def __init__(self):
+
+class DownloadManager:
+    """Runs `tools/hf_download.py` subprocesses concurrently (bounded), in parallel with jobs."""
+
+    def __init__(self, max_concurrent=MAX_CONCURRENT_DOWNLOADS):
         self.lock = threading.Lock()
-        self.current = None  # {"component", "mode", "source", "proc", "error", "cancelled"}
+        self.max_concurrent = max_concurrent
+        # component id -> {"component", "mode", "source", "paths", "proc", "error",
+        #                  "cancelled", "started", "log_tail"}
+        self.jobs = {}
+
+    @staticmethod
+    def _running(job):
+        proc = job.get("proc")
+        return proc is not None and proc.poll() is None
 
     def snapshot(self):
         with self.lock:
-            if self.current is None:
-                return None
-            proc = self.current["proc"]
-            running = proc is not None and proc.poll() is None
-            return {"component": self.current["component"], "source": self.current["source"],
-                    "error": self.current["error"], "started": self.current["started"],
-                    "running": running}
+            return [{"component": job["component"], "source": job["source"],
+                     "error": job["error"], "started": job["started"],
+                     "running": self._running(job)}
+                    for job in self.jobs.values()]
 
     def start(self, component, source):
         with self.lock:
-            if self.current is not None:
-                if self.current["proc"] is not None and self.current["proc"].poll() is None:
-                    raise HTTPException(409, f"A download is already running ({self.current['component']})")
-                self.current = None  # clear a finished/failed entry so retries work
+            component_id = component["id"]
+            current = self.jobs.get(component_id)
+            if current is not None and self._running(current):
+                raise HTTPException(409, f"A download is already running ({component_id})")
+            running = [job for job in self.jobs.values() if self._running(job)]
+            if len(running) >= self.max_concurrent:
+                names = ", ".join(job["component"] for job in running)
+                raise HTTPException(
+                    409, f"Up to {self.max_concurrent} downloads can run at once (running: {names})")
+            wanted = set(component.get("paths") or ())
+            for job in running:
+                if wanted & set(job.get("paths") or ()):
+                    raise HTTPException(
+                        409, f"Component shares files with an active download ({job['component']})")
             env = dict(os.environ)
             env["YUE2_HF_ENDPOINT"] = DOWNLOAD_ENDPOINTS[source]
             proc = subprocess.Popen(
                 [sys.executable, "-B", str(ROOT / "tools" / "hf_download.py"), component["mode"]],
                 cwd=str(ROOT), env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace")
-            self.current = {"component": component["id"], "mode": component["mode"],
-                            "source": source, "proc": proc, "error": None, "cancelled": False,
-                            "started": time.time(), "log_tail": []}
-            threading.Thread(target=self._watch, args=(proc,), daemon=True,
-                             name="yue2-download").start()
+            self.jobs[component_id] = {
+                "component": component_id, "mode": component["mode"], "source": source,
+                "paths": list(component.get("paths") or ()), "proc": proc, "error": None,
+                "cancelled": False, "started": time.time(), "log_tail": []}
+            threading.Thread(target=self._watch, args=(component_id, proc), daemon=True,
+                             name=f"yue2-download-{component_id}").start()
 
-    def _watch(self, proc):
+    def _watch(self, component_id, proc):
         for line in proc.stdout:
             with self.lock:
-                if self.current is not None:
-                    self.current["log_tail"].append(line.rstrip())
-                    del self.current["log_tail"][:-12]
+                job = self.jobs.get(component_id)
+                if job is not None and job["proc"] is proc:
+                    job["log_tail"].append(line.rstrip())
+                    del job["log_tail"][:-12]
         code = proc.wait()
         with self.lock:
-            if self.current is not None:
-                if self.current["cancelled"]:
-                    self.current = None
-                elif code != 0:
-                    tail = " | ".join(x for x in self.current["log_tail"][-3:] if x)
-                    self.current["error"] = tail or f"exit code {code}"
-                    # keep the error visible until the next start / cancel
-                    self.current["proc"] = None
+            job = self.jobs.get(component_id)
+            if job is None or job["proc"] is not proc:
+                return  # cancelled or replaced meanwhile
+            if job["cancelled"] or code == 0:
+                self.jobs.pop(component_id, None)
+            else:
+                tail = " | ".join(x for x in job["log_tail"][-3:] if x)
+                job["error"] = tail or f"exit code {code}"
+                # keep the error visible until the next start / cancel
+                job["proc"] = None
 
     def cancel(self, component_id):
         with self.lock:
-            if self.current is None or self.current["component"] != component_id:
+            job = self.jobs.pop(component_id, None)
+            if job is None:
                 raise HTTPException(404, "No download is running for that component")
-            self.current["cancelled"] = True
-            proc = self.current["proc"]
-            if proc is not None and proc.poll() is None:
-                proc.terminate()
-            else:
-                self.current = None
+            proc = job.get("proc")
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
         return True
 
 
@@ -2223,6 +2243,7 @@ def cuda_kit_entry() -> dict | None:
 
 def _models_payload():
     active = downloads.snapshot()
+    active_by_id = {job["component"]: job for job in active}
     components = []
     for comp in MODEL_COMPONENTS:
         if comp["platform"] and sys.platform != comp["platform"]:
@@ -2237,12 +2258,13 @@ def _models_payload():
                  "bytes": comp["bytes"], "required": comp["required"],
                  "installed": installed, "downloaded_bytes": 0 if installed else _component_bytes(comp),
                  "downloading": False, "error": None}
-        if active and active["component"] == comp["id"]:
-            if active.get("running"):
+        job = active_by_id.get(comp["id"])
+        if job is not None:
+            if job.get("running"):
                 entry["downloading"] = True
-            entry["error"] = active["error"]
+            entry["error"] = job["error"]
         components.append(entry)
-    return {"components": components, "download": active}
+    return {"components": components, "downloads": active}
 
 
 @app.get("/api/models")

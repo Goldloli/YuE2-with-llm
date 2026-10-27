@@ -61,23 +61,107 @@ def test_cancel_without_download(server):
     assert err.value.status_code == 404
 
 
-def test_download_start_rejects_when_busy(server, monkeypatch, tmp_path):
-    comp = {"id": "fake", "platform": None, "paths": ["nope/model.safetensors"], "mode": "core"}
-    manager = server.DownloadManager()
+class _FakeProc:
+    def __init__(self):
+        self.terminated = False
 
-    class FakeProc:
-        def poll(self):
-            return None
+    @property
+    def stdout(self):
+        return []
 
-    manager.current = {"component": "fake", "mode": "core", "source": "mirror",
-                       "proc": FakeProc(), "error": None, "cancelled": False,
-                       "started": 0, "log_tail": []}
+    def poll(self):
+        return None
+
+    def terminate(self):
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        return 0
+
+
+def _fake_manager(server, monkeypatch, max_concurrent=None):
+    """DownloadManager with a fake child process and a no-op watcher thread."""
+    monkeypatch.setattr(server.DownloadManager, "_watch", lambda self, cid, proc: None)
+    procs = []
+
+    class FakePopen(_FakeProc):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+            procs.append(self)
+
+    monkeypatch.setattr(server.subprocess, "Popen", FakePopen)
+    if max_concurrent is None:
+        max_concurrent = server.MAX_CONCURRENT_DOWNLOADS
+    return server.DownloadManager(max_concurrent=max_concurrent), procs
+
+
+def _comp(component_id, *paths):
+    return {"id": component_id, "mode": "core", "paths": list(paths)}
+
+
+def test_download_allows_multiple_components_concurrently(server, monkeypatch):
+    manager, procs = _fake_manager(server, monkeypatch)
+    manager.start(_comp("fake-a", "a/model.safetensors"), "mirror")
+    manager.start(_comp("fake-b", "b/model.safetensors"), "mirror")
+    snapshot = manager.snapshot()
+    assert [job["component"] for job in snapshot] == ["fake-a", "fake-b"]
+    assert all(job["running"] for job in snapshot)
+    assert len(procs) == 2
+
+
+def test_download_same_component_rejected_while_running(server, monkeypatch):
+    manager, _ = _fake_manager(server, monkeypatch)
+    manager.start(_comp("fake-a", "a/model.safetensors"), "mirror")
     with pytest.raises(HTTPException) as err:
-        manager.start(comp, "mirror")
+        manager.start(_comp("fake-a", "a/model.safetensors"), "mirror")
     assert err.value.status_code == 409
-    # a dead entry does not block a retry
-    manager.current["proc"] = None
-    assert manager.snapshot() is not None
+    assert "already running" in str(err.value.detail)
+
+
+def test_download_respects_concurrency_limit(server, monkeypatch):
+    manager, _ = _fake_manager(server, monkeypatch, max_concurrent=2)
+    manager.start(_comp("fake-a", "a/x"), "mirror")
+    manager.start(_comp("fake-b", "b/x"), "mirror")
+    with pytest.raises(HTTPException) as err:
+        manager.start(_comp("fake-c", "c/x"), "mirror")
+    assert err.value.status_code == 409
+    assert "Up to 2" in str(err.value.detail)
+    assert len(manager.snapshot()) == 2
+
+
+def test_download_rejects_overlapping_targets(server, monkeypatch):
+    manager, _ = _fake_manager(server, monkeypatch)
+    manager.start(_comp("fake-a", "shared/model.safetensors"), "mirror")
+    with pytest.raises(HTTPException) as err:
+        manager.start(_comp("fake-b", "shared/model.safetensors"), "mirror")
+    assert err.value.status_code == 409
+    assert "shares files" in str(err.value.detail)
+
+
+def test_cancel_stops_only_target_component(server, monkeypatch):
+    manager, procs = _fake_manager(server, monkeypatch)
+    manager.start(_comp("fake-a", "a/x"), "mirror")
+    manager.start(_comp("fake-b", "b/x"), "mirror")
+    manager.cancel("fake-a")
+    assert procs[0].terminated is True
+    assert procs[1].terminated is False
+    assert [job["component"] for job in manager.snapshot()] == ["fake-b"]
+    with pytest.raises(HTTPException) as err:
+        manager.cancel("fake-a")
+    assert err.value.status_code == 404
+
+
+def test_models_payload_marks_each_active_download(server, monkeypatch):
+    manager, _ = _fake_manager(server, monkeypatch)
+    comps = {c["id"]: c for c in server.MODEL_COMPONENTS}
+    manager.start(comps["core"], "mirror")
+    manager.start(comps["decoders"], "mirror")
+    monkeypatch.setattr(server, "downloads", manager)
+    payload = server._models_payload()
+    by_id = {c["id"]: c for c in payload["components"]}
+    assert by_id["core"]["downloading"] is True
+    assert by_id["decoders"]["downloading"] is True
+    assert {job["component"] for job in payload["downloads"]} == {"core", "decoders"}
 
 
 def test_download_source_setting_validation(server, tmp_path, monkeypatch):
