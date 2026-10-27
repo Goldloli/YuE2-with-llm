@@ -45,4 +45,4 @@
 - [x] 6.6 模型页 UI：Windows 专属「CUDA 加速套件」条目（GPU 检测、下载进度/取消、已安装待重启、移除），zh/en 文案；无视觉变更（复用 `.mdl-*` 形态）
 - [x] 6.7 `tests/test_cuda_kit.py`：manifest 校验/路径安全/下载-校验-解压（fake fetch）/取消/状态机/平台门控
 - [x] 6.8 文档：使用说明（Windows NVIDIA 用户可选安装、约 3 GB、重启生效）、README
-- [x] 6.9 已用 dispatch 发布套件 release `cuda-kit-cu128-torch2.10.0`（manifest + 2×1362 MB 分卷，CI 内 `--verify-parts` 通过）——**待决**：仓库为私仓，未登录下载 manifest 返回 404，应用无法匿名下载；需转公开仓库或改托管到公开 HF 仓库后更新 `tools/cuda_kit.json`
+- [x] 6.9 CUDA 套件 release `cuda-kit-cu128-torch2.10.0` 已发布（manifest + 2×1362 MB 分卷，CI 内 `--verify-parts` 通过）；仓库转 public 后已验证匿名下载：manifest HTTP 200、分卷可达、`tools/cuda_kit.json` URL 无需修改
