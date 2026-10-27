@@ -1372,6 +1372,7 @@ const MODEL_GROUPS = [
   ["lora", "models.groupLora"],
   ["transcribe", "models.groupTranscribe"],
   ["mlx", "models.groupMlx"],
+  ["cuda", "models.groupCuda"],
 ];
 
 let modelsTimer = null;
@@ -1432,6 +1433,43 @@ function modelRowHtml(c) {
   </div>`;
 }
 
+/* Windows-only CUDA acceleration kit: download / cancel / remove, GPU hint. */
+function cudaKitRowHtml(c) {
+  const kit = c.cuda || {};
+  const pct = c.bytes ? Math.min(100, Math.round((c.downloaded_bytes / c.bytes) * 100)) : 0;
+  const badge = !kit.supported
+    ? `<span class="mdl-badge">${t("models.cudaUnsupported")}</span>`
+    : c.downloading
+      ? `<span class="mdl-badge busy">${pct}%</span>`
+      : kit.invalidated
+        ? `<span class="mdl-badge">${t("models.cudaInvalidated")}</span>`
+        : kit.enabled
+          ? `<span class="mdl-badge ok">${t("models.cudaEnabled")}</span>`
+          : kit.installed
+            ? `<span class="mdl-badge">${t("models.cudaRestart")}</span>`
+            : `<span class="mdl-badge">${t("models.notInstalled")}</span>`;
+  const action = c.downloading
+    ? `<button class="ghost-btn" data-mdl-cancel="${c.id}">${t("models.cancel")}</button>`
+    : kit.installed
+      ? `<button class="ghost-btn" data-cuda-remove="1">${t("models.cudaRemove")}</button>`
+      : kit.gpu_detected === false
+        ? ""
+        : `<button class="ghost-btn primary" data-mdl-download="${c.id}">${t("models.download")}</button>`;
+  const size = c.bytes ? fmtSize(c.bytes) : t("models.cudaApprox");
+  const gpu = kit.gpu_detected == null
+    ? t("models.cudaDetecting")
+    : kit.gpu_detected ? t("models.cudaGpuOk") : t("models.cudaNoGpu");
+  const reason = kit.reason ? ` · <span class="mdl-err">${esc(kit.reason)}</span>` : "";
+  return `<div class="mdl-row">
+    <div class="mdl-info">
+      <div class="mdl-name">${esc(c.label)}</div>
+      <div class="mdl-sub">${size} · ${gpu}${c.error ? ` · <span class="mdl-err">${esc(c.error)}</span>` : ""}${reason}</div>
+      ${c.downloading ? `<div class="mdl-bar"><div style="width:${pct}%"></div></div>` : ""}
+    </div>
+    <div class="mdl-side">${badge}${action}</div>
+  </div>`;
+}
+
 function renderModelsPage() {
   const view = $("#view-models");
   const s = state.server || {};
@@ -1481,7 +1519,7 @@ function renderModelsPage() {
       ${MODEL_GROUPS.map(([g, key]) => {
         const items = d.components.filter((c) => c.group === g);
         if (!items.length) return "";
-        return `<div class="mdl-group">${t(key)}</div>${items.map(modelRowHtml).join("")}`;
+        return `<div class="mdl-group">${t(key)}</div>${items.map((c) => (c.id === "cuda-kit" ? cudaKitRowHtml(c) : modelRowHtml(c))).join("")}`;
       }).join("")}
     </div>`;
   if (keepScroll) view.querySelector(".mdl-scroll").scrollTop = keepScroll;
@@ -1534,6 +1572,14 @@ function renderModelsPage() {
         body: JSON.stringify({ component: btn.dataset.mdlCancel }) });
       renderModelsPage();
     } catch (err) { toast(err.message, true); }
+  }));
+  view.querySelectorAll("[data-cuda-remove]").forEach((btn) => btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      modelsData = await api("/api/models/cuda-kit", { method: "DELETE" });
+      renderModelsPage();
+      toast(t("models.cudaRemoved"));
+    } catch (err) { toast(err.message, true); btn.disabled = false; }
   }));
 }
 

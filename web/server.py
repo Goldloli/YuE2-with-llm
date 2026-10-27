@@ -46,6 +46,21 @@ OUTPUTS = ROOT / "outputs"
 LIBRARY_FILE = DATA / "library.json"
 ABC_TOOLS = ROOT / "skills" / "yue2-music" / "scripts"
 
+# Windows-only CUDA acceleration kit (optional; downloaded from its own release).
+# The injection has to happen before anything imports torch (torch is imported
+# lazily further down), so the kit's torch tree wins over the bundled CPU build.
+sys.path.insert(0, str(WEB))
+try:
+    import cuda_kit
+except Exception as _cuda_kit_error:  # pragma: no cover - defensive
+    cuda_kit = None
+    print(f"CUDA kit module unavailable: {_cuda_kit_error}", file=sys.stderr)
+else:
+    try:
+        cuda_kit.maybe_inject()
+    except Exception as _cuda_kit_error:  # pragma: no cover - defensive
+        print(f"CUDA kit injection skipped: {_cuda_kit_error}", file=sys.stderr)
+
 MODEL_DIR = ROOT / "models" / "YuE2-3B"
 VAE_DIR = ROOT / "models" / "YuE2-Vae"
 VAE_LEGACY_DIR = ROOT / "models" / "YuE2-Vae-legacy"
@@ -53,6 +68,40 @@ LORAS_DIR = ROOT / "models" / "loras"
 MLX_DIR = ROOT / "models" / "YuE2-3B-MLX"
 MLX_PY = ROOT / ".venv-mlx" / "bin" / "python"
 MLX_SCRIPT = ROOT / "tools" / "mlx_generate.py"
+
+# Self-contained one-click package: portable runtime + preinstalled envs. When
+# present these replace the developer venvs for the optional subprocesses.
+BUNDLED_RUNTIME = ROOT / "runtime" / ("python.exe" if os.name == "nt" else "bin/python3")
+BUNDLED_WEB_ENV = ROOT / "envs" / "web"
+BUNDLED_MLX_ENV = ROOT / "envs" / "mlx"
+
+
+def bundled_ready() -> bool:
+    return BUNDLED_RUNTIME.exists() and (BUNDLED_WEB_ENV / "torch").is_dir()
+
+
+def mlx_interpreter() -> tuple[Path | None, dict]:
+    """Interpreter + extra env for the MLX subprocess (bundled env or dev venv)."""
+    if bundled_ready() and (BUNDLED_MLX_ENV / "mlx").is_dir():
+        return BUNDLED_RUNTIME, {"PYTHONPATH": str(BUNDLED_MLX_ENV)}
+    if MLX_PY.exists():
+        return MLX_PY, {}
+    return None, {}
+
+
+def sheetsage_interpreter() -> tuple[Path | None, dict]:
+    """Interpreter + extra env for the transcription / encode subprocesses."""
+    if bundled_ready() and (BUNDLED_WEB_ENV / "torchaudio").is_dir():
+        return BUNDLED_RUNTIME, {"PYTHONPATH": str(BUNDLED_WEB_ENV)}
+    if SHEETSAGE_PY.exists():
+        return SHEETSAGE_PY, {}
+    return None, {}
+
+
+def subprocess_env(extra: dict) -> dict:
+    env = dict(os.environ)
+    env.update(extra)
+    return env
 VAE_MERGE_DIR = ROOT / "models" / "YuE2-Vae-merge"
 REAUDIO_DIR = ROOT / "models" / "YuE2-Realaudio"
 REAUDIO_LORA = REAUDIO_DIR / "nar_lora_joint_v9.bf16.safetensors"
@@ -97,6 +146,11 @@ MODEL_COMPONENTS = [
     {"id": "mlx-4bit", "group": "mlx", "label": "MLX · 4-bit", "mode": "mlx-4bit",
      "bytes": 3636149612, "required": False, "platform": "darwin",
      "paths": ["YuE2-3B-MLX/4bit/model.safetensors", "YuE2-3B-MLX/4bit/vae.safetensors"]},
+    # Windows-only acceleration kit: a cu128 torch tree published as its own
+    # split release. Never shipped in the package; downloaded from the app.
+    {"id": "cuda-kit", "group": "cuda", "label": "CUDA 加速套件（NVIDIA GPU）",
+     "mode": "cuda-kit", "bytes": 0, "required": False, "platform": "win32",
+     "paths": []},
 ]
 MODEL_COMPONENTS_BY_ID = {c["id"]: c for c in MODEL_COMPONENTS}
 
@@ -122,7 +176,8 @@ STAGES = ["planning", "composing", "synthesizing", "decoding"]
 
 
 def transcribe_available():
-    return (SHEETSAGE_PY.exists() and (SHEETSAGE_MODEL / "config.json").exists()
+    interpreter, _ = sheetsage_interpreter()
+    return (interpreter is not None and (SHEETSAGE_MODEL / "config.json").exists()
             and (MERT_MODEL / "config.json").exists() and TRANSCRIBE_SCRIPT.exists())
 
 
@@ -143,7 +198,8 @@ def mlx_variant_effective():
 
 
 def mlx_available():
-    return (MLX_PY.exists() and MLX_SCRIPT.exists()
+    interpreter, _ = mlx_interpreter()
+    return (interpreter is not None and MLX_SCRIPT.exists()
             and bool(mlx_variants()))
 
 
@@ -526,15 +582,16 @@ class Runner:
             raise FileNotFoundError("Uploaded audio is missing")
         out = folder / "transcription"
         device = "cuda" if self.device_name() == "cuda" else "cpu"
-        cmd = [str(SHEETSAGE_PY), str(TRANSCRIBE_SCRIPT), str(sources[0]),
+        sheetsage_py, sheetsage_env = sheetsage_interpreter()
+        cmd = [str(sheetsage_py), str(TRANSCRIBE_SCRIPT), str(sources[0]),
                "--output", str(out), "--task", "melody-full",
                "--model", str(SHEETSAGE_MODEL), "--base-model", str(MERT_MODEL),
                "--device", device, "--dtype", "bf16" if device == "cuda" else "fp32",
                "--offline"]
         library.update(item_id, status="running", stage="transcribing")
-        proc = subprocess.Popen(cmd, cwd=str(ABC_TOOLS), stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True,
-                                encoding="utf-8", errors="replace")
+        proc = subprocess.Popen(cmd, cwd=str(ABC_TOOLS), env=subprocess_env(sheetsage_env),
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, encoding="utf-8", errors="replace")
         self.procs[item_id] = proc
         log_tail = []
         for line in proc.stdout:
@@ -744,7 +801,8 @@ class Runner:
         instrumental = kwargs.pop("instrumental", False)
         folder = OUTPUTS / item_id
         folder.mkdir(parents=True, exist_ok=True)
-        cmd = [str(MLX_PY), str(MLX_SCRIPT), "--model", str(MLX_DIR), "--variant", mlx_variant_effective(),
+        mlx_py, mlx_env = mlx_interpreter()
+        cmd = [str(mlx_py), str(MLX_SCRIPT), "--model", str(MLX_DIR), "--variant", mlx_variant_effective(),
                "--style", kwargs["style"], "--lyrics", kwargs.get("lyrics", ""),
                "--cot", kwargs.get("cot", "full"), "--seed", str(kwargs["seed"]),
                "--style-language", kwargs.get("style_language", "auto"),
@@ -771,9 +829,9 @@ class Runner:
             cmd += ["--abc-file", str(abc_file)]
         library.update(item_id, status="running", stage="loading_model",
                        progress={"abc_tokens": 0, "semantic_tokens": 0})
-        proc = subprocess.Popen(cmd, cwd=str(ROOT), stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT, text=True,
-                                encoding="utf-8", errors="replace")
+        proc = subprocess.Popen(cmd, cwd=str(ROOT), env=subprocess_env(mlx_env),
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, encoding="utf-8", errors="replace")
         self.procs[item_id] = proc
         progress = {"abc_tokens": 0, "semantic_tokens": 0}
         log_tail = []
@@ -841,12 +899,13 @@ class Runner:
             if not sources:
                 raise FileNotFoundError("Uploaded audio is missing")
             device = "cuda" if self.device_name() == "cuda" else "cpu"
-            cmd = [str(SHEETSAGE_PY), str(REAUDIO_ENCODE_SCRIPT), str(sources[0]),
+            sheetsage_py, sheetsage_env = sheetsage_interpreter()
+            cmd = [str(sheetsage_py), str(REAUDIO_ENCODE_SCRIPT), str(sources[0]),
                    "--output", str(tokens_path), "--device", device]
             library.update(item_id, status="running", stage="encoding")
-            proc = subprocess.Popen(cmd, cwd=str(ROOT), stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, text=True,
-                                    encoding="utf-8", errors="replace")
+            proc = subprocess.Popen(cmd, cwd=str(ROOT), env=subprocess_env(sheetsage_env),
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                    text=True, encoding="utf-8", errors="replace")
             self.procs[item_id] = proc
             log_tail = []
             for line in proc.stdout:
@@ -2145,11 +2204,33 @@ class ModelCancel(BaseModel):
     component: str
 
 
+def cuda_kit_entry() -> dict | None:
+    """Model-page row for the Windows CUDA acceleration kit (None off Windows)."""
+    if cuda_kit is None or sys.platform != "win32":
+        return None
+    status = cuda_kit.status()
+    job = status.get("job") or {}
+    total = int(job.get("total_bytes") or 0) or cuda_kit.size_bytes()
+    return {"id": "cuda-kit", "group": "cuda",
+            "label": "CUDA 加速套件（NVIDIA GPU）",
+            "bytes": total, "required": False,
+            "installed": bool(status.get("installed")),
+            "downloaded_bytes": int(job.get("downloaded_bytes") or 0),
+            "downloading": job.get("status") == "running",
+            "error": job.get("error"),
+            "cuda": status}
+
+
 def _models_payload():
     active = downloads.snapshot()
     components = []
     for comp in MODEL_COMPONENTS:
         if comp["platform"] and sys.platform != comp["platform"]:
+            continue
+        if comp.get("mode") == "cuda-kit":
+            entry = cuda_kit_entry()
+            if entry is not None:
+                components.append(entry)
             continue
         installed = all((ROOT / "models" / rel).exists() for rel in comp["paths"])
         entry = {"id": comp["id"], "group": comp["group"], "label": comp["label"],
@@ -2176,6 +2257,14 @@ def models_download(body: ModelDownload):
         raise HTTPException(422, f"Unknown component '{body.component}'")
     if comp["platform"] and sys.platform != comp["platform"]:
         raise HTTPException(422, "This component is not available on this platform")
+    if comp.get("mode") == "cuda-kit":
+        if cuda_kit is None or not cuda_kit.status().get("supported"):
+            raise HTTPException(422, "CUDA 加速套件仅支持 Windows 平台")
+        try:
+            cuda_kit.start_download()
+        except Exception as exc:  # noqa: BLE001 - surfaced to the UI verbatim
+            raise HTTPException(409, str(exc)) from exc
+        return _models_payload()
     if all((ROOT / "models" / rel).exists() for rel in comp["paths"]):
         raise HTTPException(409, "This component is already installed")
     source = body.source or settings.get("download_source") or "mirror"
@@ -2187,7 +2276,24 @@ def models_download(body: ModelDownload):
 
 @app.post("/api/models/cancel")
 def models_cancel(body: ModelCancel):
+    if body.component == "cuda-kit" and cuda_kit is not None:
+        try:
+            cuda_kit.cancel()
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(409, str(exc)) from exc
+        return _models_payload()
     downloads.cancel(body.component)
+    return _models_payload()
+
+
+@app.delete("/api/models/cuda-kit")
+def cuda_kit_remove():
+    if cuda_kit is None or sys.platform != "win32":
+        raise HTTPException(422, "CUDA 加速套件仅支持 Windows 平台")
+    try:
+        cuda_kit.remove()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(409, str(exc)) from exc
     return _models_payload()
 
 

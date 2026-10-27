@@ -1,0 +1,5 @@
+{
+  "manifest_url": "https://github.com/Goldloli/YuE2-with-llm/releases/download/cuda-kit-cu128-torch2.10.0/cuda-kit-manifest.json",
+  "torch_version": "2.10.0",
+  "kit_release_tag": "cuda-kit-cu128-torch2.10.0"
+}

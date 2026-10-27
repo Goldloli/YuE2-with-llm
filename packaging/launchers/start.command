@@ -1,7 +1,16 @@
 #!/bin/bash
-# YuE2 Studio launcher for macOS / Linux — double-click this file to start.
+# YuE2 Studio launcher (macOS). Double-click this file to start.
+#
+# The self-contained package ships its own Python runtime and dependencies, so
+# no install step and no network access are needed (models are downloaded later
+# from the in-app Models page).
 cd "$(dirname "$0")" || exit 1
 
+if [ -x "runtime/bin/python3" ] && [ -d "envs/web" ]; then
+  exec "runtime/bin/python3" tools/start.py --bundled
+fi
+
+# Development checkout / slim package: reuse a venv or the system Python.
 if [ -x ".venv/bin/python" ]; then
   exec .venv/bin/python tools/start.py
 fi

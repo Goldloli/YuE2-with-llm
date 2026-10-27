@@ -1,6 +1,15 @@
 @echo off
-rem YuE2 Studio launcher for Windows — double-click this file to start.
+rem YuE2 Studio launcher (Windows). Double-click this file to start.
+rem
+rem The self-contained package ships its own Python runtime and dependencies, so
+rem no install step and no network access are needed (models are downloaded later
+rem from the in-app Models page).
 cd /d "%~dp0"
+
+if exist "runtime\python.exe" if exist "envs\web" (
+  "runtime\python.exe" tools\start.py --bundled
+  goto :end
+)
 
 if exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" tools\start.py

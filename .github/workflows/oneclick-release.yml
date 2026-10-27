@@ -53,12 +53,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: 构建 + 冒烟（macOS 包）
+      - name: 缓存便携 Python 与 pip wheel
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/yue2-oneclick-cache
+            ${{ runner.temp }}/yue2-pip-cache
+          key: oneclick-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'packaging/build_package.py', 'packaging/launchers/**') }}
+          restore-keys: oneclick-${{ runner.os }}-
+      - name: 构建自包含包（macOS）
+        shell: bash
+        env:
+          YUE2_ONECLICK_CACHE: ${{ runner.temp }}/yue2-oneclick-cache
+          PIP_CACHE_DIR: ${{ runner.temp }}/yue2-pip-cache
+        run: python packaging/build_package.py --platform macos
+      - name: 条目冒烟 + 真冒烟（macOS 包）
         shell: bash
         run: |
           set -euo pipefail
-          python packaging/build_package.py --platform macos
           python packaging/smoke_package.py oneclick-packages/macos/*.zip
+          python packaging/smoke_bundle.py oneclick-packages/macos/*.zip
       - name: 上传 mac 包到 release
         shell: bash
         env:
@@ -84,12 +98,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: 构建 + 冒烟（Windows 包）
+      - name: 缓存便携 Python 与 pip wheel
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/yue2-oneclick-cache
+            ${{ runner.temp }}/yue2-pip-cache
+          key: oneclick-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'packaging/build_package.py', 'packaging/launchers/**') }}
+          restore-keys: oneclick-${{ runner.os }}-
+      - name: 构建自包含包（Windows）
+        shell: bash
+        env:
+          YUE2_ONECLICK_CACHE: ${{ runner.temp }}/yue2-oneclick-cache
+          PIP_CACHE_DIR: ${{ runner.temp }}/yue2-pip-cache
+        run: python packaging/build_package.py --platform win-x64
+      - name: 条目冒烟 + 真冒烟（Windows 包）
         shell: bash
         run: |
           set -euo pipefail
-          python packaging/build_package.py --platform win-x64
           python packaging/smoke_package.py oneclick-packages/win-x64/*.zip
+          python packaging/smoke_bundle.py oneclick-packages/win-x64/*.zip
       - name: 上传 win 包到 release
         shell: bash
         env:

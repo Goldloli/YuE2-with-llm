@@ -1,4 +1,5 @@
 """Model manager endpoints: component validation, sources, download channel."""
+import sys
 import importlib.util
 from pathlib import Path
 
@@ -103,3 +104,25 @@ def test_default_lora_validation(server, tmp_path, monkeypatch):
     assert err.value.status_code == 422
     server.update_settings(server.SettingsUpdate(default_lora=None))
     assert store.get("default_lora") is None
+
+
+def test_cuda_kit_entry_only_for_windows(server, monkeypatch):
+    """The CUDA kit row shows up in the model page only on Windows."""
+    fake_status = {"supported": True, "gpu_detected": True, "installed": False,
+                   "invalidated": False, "enabled": False, "reason": None,
+                   "kit": None, "job": None}
+
+    class FakeKit:
+        def status(self):
+            return dict(fake_status)
+
+        def size_bytes(self):
+            return 0
+
+    monkeypatch.setattr(server, "cuda_kit", FakeKit())
+    monkeypatch.setattr(sys, "platform", "win32")
+    entry = next(c for c in server._models_payload()["components"] if c["id"] == "cuda-kit")
+    assert entry["group"] == "cuda" and entry["cuda"]["supported"] is True
+    assert entry["installed"] is False
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert all(c["id"] != "cuda-kit" for c in server._models_payload()["components"])

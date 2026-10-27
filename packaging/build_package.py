@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Build a platform-specific YuE2 Studio one-click package (~10 MiB, no models).
+"""Build a platform-specific, self-contained YuE2 Studio one-click package.
 
 Each package ships exactly one launcher: `macos` gets `start.command`, `win-x64`
-gets `start.bat`. Model weights are never embedded — after the first launch the
-app opens the Models page, where the user downloads what they need and picks a
-download channel (domestic mirror hf-mirror.com or direct huggingface.co).
+gets `start.bat`. The default build is *self-contained*: it embeds a portable
+CPython runtime (`runtime/`) plus every Python dependency (`envs/web/`, and
+`envs/mlx/` on macOS), so double-clicking the launcher starts the web studio
+without any network access or pip install. Model weights are never embedded —
+the app opens the Models page, where the user downloads what they need and picks
+a download channel (domestic mirror hf-mirror.com or direct huggingface.co).
 
     python packaging/build_package.py --platform macos
     python packaging/build_package.py --platform win-x64
-    python packaging/build_package.py            # infer from the build machine
+    python packaging/build_package.py --platform macos --runtime slim   # dev-only
 
 Output: oneclick-packages/<platform>/yue2-studio-oneclick-<YYYYMMDD>-<platform>.zip
 """
@@ -16,10 +19,16 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
+import os
+import platform as platform_module
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
+import tomllib
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -36,6 +45,22 @@ PACKAGE_NAME = "yue2-studio-oneclick"
 LAUNCHERS = {"macos": "start.command", "win-x64": "start.bat"}
 OTHER_LAUNCHERS = {"macos": "start.bat", "win-x64": "start.command"}
 PLATFORMS = sorted(LAUNCHERS)
+RUNTIMES = ("bundle", "slim")
+HOOKS_MESSAGE = "双击启动器即可打开网页，不需要联网安装依赖（模型在应用内下载）"
+
+# Portable CPython (python-build-standalone). Pin both values: bump deliberately.
+PBS_TAG = "20261026"
+PBS_VERSION = "3.11.18"
+PBS_TRIPLES = {"macos": "aarch64-apple-darwin", "win-x64": "x86_64-pc-windows-msvc"}
+PBS_URL = ("https://github.com/astral-sh/python-build-standalone/releases/download/"
+           "{tag}/cpython-{version}+{tag}-{triple}-install_only_stripped.tar.gz")
+
+# macOS-only MLX runtime (small: mlx + mlx-metal). The app also keeps working
+# with the torch backend if the user never touches MLX.
+MLX_PINS = ["mlx==0.32.4", "tiktoken==0.12.0", "numpy==2.2.6", "soundfile==0.13.1"]
+
+# GitHub caps release assets at 2 GiB; keep a clear margin.
+MAX_ZIP_BYTES = 1_900_000_000
 
 # Whitelist: everything that ships as source. New top-level dirs stay OUT.
 INCLUDE_ROOTS = [
@@ -86,6 +111,123 @@ def other_launcher_name(platform: str) -> str:
 def package_zip_name(platform: str, stamp: str | None = None) -> str:
     stamp = stamp or datetime.date.today().strftime("%Y%m%d")
     return f"{PACKAGE_NAME}-{stamp}-{platform}.zip"
+
+
+def runtime_python(pkg: Path, platform: str) -> Path:
+    """Interpreter path inside a bundled package."""
+    return pkg / "runtime" / ("python.exe" if platform == "win-x64" else "bin/python3")
+
+
+def env_dir(pkg: Path, name: str) -> Path:
+    return pkg / "envs" / name
+
+
+def cache_dir() -> Path:
+    override = os.environ.get("YUE2_ONECLICK_CACHE")
+    if override:
+        return Path(override)
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "yue2-oneclick"
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home())
+        return Path(base) / "yue2-oneclick"
+    return Path.home() / ".cache" / "yue2-oneclick"
+
+
+def _download(url: str, target: Path):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    print(f"  download: {url}")
+    with urllib.request.urlopen(url, timeout=300) as response, \
+            target.open("wb") as handle:
+        shutil.copyfileobj(response, handle, length=1 << 20)
+
+
+def fetch_runtime_archive(platform: str) -> Path:
+    """Download (once) the portable CPython tarball for the target platform."""
+    triple = PBS_TRIPLES[platform]
+    name = f"cpython-{PBS_VERSION}+{PBS_TAG}-{triple}-install_only_stripped.tar.gz"
+    cache = cache_dir()
+    archive = cache / name
+    if archive.exists() and archive.stat().st_size > 0:
+        print(f"  reuse cached runtime: {archive}")
+        return archive
+    url = PBS_URL.format(tag=PBS_TAG, version=PBS_VERSION, triple=triple)
+    _download(url, archive.with_suffix(".part"))
+    archive.with_suffix(".part").replace(archive)
+    return archive
+
+
+def extract_runtime(archive: Path, pkg: Path):
+    """Extract the tarball's top-level ``python/`` tree into ``pkg/runtime``."""
+    runtime = pkg / "runtime"
+    if runtime.exists():
+        shutil.rmtree(runtime)
+    with tempfile.TemporaryDirectory(prefix="yue2-pbs-") as work:
+        with tarfile.open(archive, "r:gz") as tar:
+            tar.extractall(work, filter="data")
+        source = Path(work) / "python"
+        if not source.is_dir():
+            raise SystemExit(f"portable runtime archive has no python/ root: {archive}")
+        shutil.move(str(source), str(runtime))
+    print(f"  + runtime/ ({runtime})")
+
+
+def bundle_requirements() -> list[str]:
+    """Runtime dependencies = pyproject deps + [web] extras + torchaudio (pinned).
+
+    Keeping this derived from pyproject avoids a second pin list drifting out of
+    date; torchaudio uses the same version as torch for the audio transcribe env.
+    """
+    with (ROOT / "pyproject.toml").open("rb") as handle:
+        project = tomllib.load(handle)["project"]
+    requirements = list(project.get("dependencies", []))
+    requirements += list(project.get("optional-dependencies", {}).get("web", []))
+    torch_pin = next((req for req in requirements if req.startswith("torch==")), None)
+    if torch_pin is None:
+        raise SystemExit("pyproject.toml must pin torch with == for bundling")
+    requirements.append("torchaudio" + torch_pin[len("torch"):])
+    return requirements
+
+
+def pip_install(target: Path, requirements: list[str], runtime: Path):
+    target.mkdir(parents=True, exist_ok=True)
+    env = dict(os.environ)
+    env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONUTF8"] = "1"
+    env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+    cmd = [str(runtime), "-m", "pip", "install", "--quiet", "--no-warn-script-location",
+           "--target", str(target), *requirements]
+    subprocess.run(cmd, check=True, env=env)
+
+
+def bundle_envs(pkg: Path, platform: str):
+    runtime = runtime_python(pkg, platform)
+    if not runtime.exists():
+        raise SystemExit(f"bundled runtime interpreter missing: {runtime}")
+    print("  installing envs/web …")
+    pip_install(env_dir(pkg, "web"), bundle_requirements(), runtime)
+    print("  + envs/web/")
+    if platform == "macos":
+        print("  installing envs/mlx …")
+        pip_install(env_dir(pkg, "mlx"), list(MLX_PINS), runtime)
+        print("  + envs/mlx/")
+
+
+def verify_runtime_imports(pkg: Path, platform: str):
+    runtime = runtime_python(pkg, platform)
+    env = dict(os.environ)
+    env["PYTHONNOUSERSITE"] = "1"
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(env_dir(pkg, "web")), str(pkg / "src")])
+    check = ("import torch, transformers, fastapi, uvicorn, soundfile, numpy; "
+             "import yue2; print(torch.__version__)")
+    result = subprocess.run([str(runtime), "-c", check], capture_output=True,
+                            text=True, env=env)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()[-2000:]
+        raise SystemExit(f"bundled runtime self-check failed: {detail}")
+    print(f"  self-check ok (torch {result.stdout.strip()})")
 
 
 def copy_tree(src: Path, dest: Path):
@@ -146,11 +288,18 @@ def scan_forbidden(pkg: Path):
         raise SystemExit(f"FORBIDDEN content inside the package: {hits[:8]} (build aborted)")
 
 
-def self_check(pkg: Path, platform: str):
+def self_check(pkg: Path, platform: str, runtime: str):
     missing = [name for name in REQUIRED_INSIDE if not (pkg / name).exists()]
     wanted = launcher_name(platform)
     if not (pkg / wanted).exists():
         missing.append(wanted)
+    if runtime == "bundle":
+        if not runtime_python(pkg, platform).exists():
+            missing.append("runtime/<python>")
+        if not (env_dir(pkg, "web") / "torch").is_dir():
+            missing.append("envs/web/torch")
+        if platform == "macos" and not (env_dir(pkg, "mlx") / "mlx").is_dir():
+            missing.append("envs/mlx/mlx")
     if missing:
         raise SystemExit(f"Package is incomplete, missing: {missing}")
     stray = other_launcher_name(platform)
@@ -181,6 +330,10 @@ def make_zip(pkg: Path, out_dir: Path, platform: str) -> tuple[Path, int]:
             if path.is_file():
                 zf.write(path, path.relative_to(pkg.parent))
                 total_files += 1
+    if out.stat().st_size > MAX_ZIP_BYTES:
+        raise SystemExit(f"package exceeds the GitHub asset budget: "
+                         f"{out.stat().st_size / 2 ** 30:.2f} GiB > "
+                         f"{MAX_ZIP_BYTES / 2 ** 30:.2f} GiB")
     return out, total_files
 
 
@@ -197,9 +350,12 @@ def check_style_terms():
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--platform", choices=PLATFORMS, default=None,
                     help="target platform (default: infer from the build machine)")
+    ap.add_argument("--runtime", choices=RUNTIMES, default="bundle",
+                    help="bundle = self-contained (default); slim = source-only for dev")
     ap.add_argument("--keep-stage", action="store_true", help="Keep the staging directory for inspection")
     ap.add_argument("--out-dir", type=Path, default=None,
                     help="Override the output directory")
@@ -211,20 +367,25 @@ def main():
         print(f"scan passed: {args.scan_only}")
         return 0
 
-    platform = args.platform or detect_platform()
-    if platform is None:
+    target = args.platform or detect_platform()
+    if target is None:
         raise SystemExit("无法判定构建平台，请显式指定 --platform macos|win-x64")
-    out_dir = args.out_dir or ROOT / "oneclick-packages" / platform
+    out_dir = args.out_dir or ROOT / "oneclick-packages" / target
     check_style_terms()
     stage_root = Path(tempfile.mkdtemp(prefix="yue2-oneclick-"))
-    print(f"build: slim {platform} package | staging: {stage_root}")
+    print(f"build: {args.runtime} {target} package | staging: {stage_root}")
     try:
-        pkg = stage_source(stage_root, platform)
+        pkg = stage_source(stage_root, target)
+        if args.runtime == "bundle":
+            extract_runtime(fetch_runtime_archive(target), pkg)
+            bundle_envs(pkg, target)
+            verify_runtime_imports(pkg, target)
         scan_forbidden(pkg)
-        self_check(pkg, platform)
-        out, files = make_zip(pkg, out_dir, platform)
-        size_gb = out.stat().st_size / 2 ** 30
-        print(f"\nbuilt: {out}  ({size_gb:.2f} GiB, {files} files)")
+        self_check(pkg, target, args.runtime)
+        out, files = make_zip(pkg, out_dir, target)
+        size_mb = out.stat().st_size / 2 ** 20
+        print(f"\nbuilt: {out}  ({size_mb:.0f} MiB, {files} files)")
+        print(HOOKS_MESSAGE)
         return 0
     finally:
         if args.keep_stage:

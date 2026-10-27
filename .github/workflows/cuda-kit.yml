@@ -1,0 +1,106 @@
+name: Windows CUDA 加速套件（分卷 release）
+
+# 构建 Windows 专属的 CUDA 加速套件（cu128 torch 树），切成 ≤1.9 GiB 分卷并连同
+# `cuda-kit-manifest.json` 发布到独立 release tag（默认
+# `cuda-kit-cu128-torch2.10.0`）。该 release 只发一次，应用各版本共用；主包始终
+# 内置 CPU 版 torch，用户在「模型」页按需下载套件启用 CUDA（见 web/cuda_kit.py）。
+#
+# 触发：workflow_dispatch（可指定 tag），或 push `cuda-kit-*` tag。
+# 成本：windows runner 下载 cu128 torch（约 3 GB）+ 上传分卷，约 10–20 分钟。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag（默认 cuda-kit-cu128-torch2.10.0）"
+        default: "cuda-kit-cu128-torch2.10.0"
+  push:
+    tags: ['cuda-kit-*']
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUTF8: "1"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 解析发布 tag
+        id: tag
+        shell: bash
+        env:
+          PUSH_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            tag="${PUSH_TAG}"
+          else
+            tag="${INPUT_TAG:-cuda-kit-cu128-torch2.10.0}"
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "kit release tag: ${tag}"
+      - name: 缓存 pip wheel（cu128 torch 约 3 GB）
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/cuda-kit-pip-cache
+          key: cuda-kit-pip-${{ hashFiles('packaging/cuda-requirements-win.txt') }}
+          restore-keys: cuda-kit-pip-
+      - name: 构建分卷 + 清单并复演安装路径校验
+        shell: bash
+        env:
+          PIP_CACHE_DIR: ${{ runner.temp }}/cuda-kit-pip-cache
+        run: |
+          set -euo pipefail
+          python packaging/build_cuda_kit.py \
+            --index-url https://download.pytorch.org/whl/cu128 \
+            --out-dir dist/cuda-kit --parts 2 \
+            --kit-version "${{ steps.tag.outputs.tag }}"
+          python packaging/build_cuda_kit.py --verify-parts --out-dir dist/cuda-kit
+      - name: 建草稿 release（已存在则复用）
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release ${TAG} 已存在，复用（重跑场景）"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
+              --title "Windows CUDA 加速套件 ${TAG}" \
+              --notes "Windows x64 的 CUDA 加速套件（cu128 torch 树，分卷 + cuda-kit-manifest.json）。
+          在 YuE2 Studio 的「模型」页点击「CUDA 加速套件」自动下载、校验并安装；重启应用后生效。
+          分卷必须全部下载（应用会按顺序拼接并校验 sha256）；不要手动解压。"
+          fi
+      - name: 上传分卷与清单到 release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          files=(dist/cuda-kit/*)
+          [ ${#files[@]} -gt 0 ] || { echo "没有可上传的套件资产"; exit 1; }
+          gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "已上传到 ${TAG}：${files[*]}"
+      - name: 草稿转正式
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          echo "已发布套件：https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"

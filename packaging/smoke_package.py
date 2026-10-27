@@ -2,12 +2,14 @@
 """Smoke-check a built platform one-click package, then write its .sha256 sidecar.
 
     python packaging/smoke_package.py oneclick-packages/macos/yue2-studio-oneclick-20261012-macos.zip
-    python packaging/smoke_package.py --platform macos path/to/package.zip
+    python packaging/smoke_package.py --platform macos --allow-slim path/to/package.zip
 
 The platform is inferred from the file name (`*-macos.zip` / `*-win-x64.zip`);
 `--platform` overrides it. Checks required entries, that the platform's own
 launcher is present and the other platform's launcher is absent, that the macOS
-launcher keeps its executable bit, and the slim red lines (no models / user data).
+launcher keeps its executable bit, and the slim red lines (no models / user
+data). Release packages MUST be self-contained (`runtime/` + `envs/web`, plus
+`envs/mlx` on macOS); `--allow-slim` accepts development builds without them.
 """
 from __future__ import annotations
 
@@ -21,6 +23,12 @@ ROOT_NAME = "yue2-studio-oneclick"
 LAUNCHERS = {"macos": "start.command", "win-x64": "start.bat"}
 OTHER_LAUNCHERS = {"macos": "start.bat", "win-x64": "start.command"}
 PLATFORMS = sorted(LAUNCHERS)
+RUNTIME_PYTHONS = {"macos": "runtime/bin/python3", "win-x64": "runtime/python.exe"}
+# Marker files that prove the dependency trees were actually installed.
+BUNDLE_MARKERS = {
+    "macos": ["envs/web/torch/__init__.py", "envs/mlx/mlx/extension.py"],
+    "win-x64": ["envs/web/torch/__init__.py"],
+}
 REQUIRED = [
     f"{ROOT_NAME}/使用说明.md",
     f"{ROOT_NAME}/tools/start.py",
@@ -48,7 +56,11 @@ def platform_from_name(name: str) -> str | None:
     return None
 
 
-def check(path: Path, platform: str | None = None):
+def is_self_contained(names: set[str]) -> bool:
+    return any(name.startswith(f"{ROOT_NAME}/runtime/") for name in names)
+
+
+def check(path: Path, platform: str | None = None, allow_slim: bool = False):
     platform = platform or platform_from_name(path.name)
     if platform is None:
         raise SystemExit(f"{path.name}: cannot infer platform "
@@ -61,6 +73,16 @@ def check(path: Path, platform: str | None = None):
     missing = [entry for entry in REQUIRED if entry not in names]
     if launcher not in names:
         missing.append(launcher)
+    bundled = is_self_contained(names)
+    if bundled:
+        runtime = f"{ROOT_NAME}/{RUNTIME_PYTHONS[platform]}"
+        if runtime not in names:
+            missing.append(runtime)
+        missing += [f"{ROOT_NAME}/{marker}" for marker in BUNDLE_MARKERS[platform]
+                    if f"{ROOT_NAME}/{marker}" not in names]
+    elif not allow_slim:
+        missing.append(f"{ROOT_NAME}/runtime/ (self-contained bundle required; "
+                       f"pass --allow-slim for development builds)")
     if missing:
         raise SystemExit(f"{path.name}: missing entries: {missing}")
     if stray in names:
@@ -80,7 +102,8 @@ def check(path: Path, platform: str | None = None):
     # Write bytes so Windows runners do not turn "\n" into CRLF: shasum -c and
     # certutil both expect a plain LF-terminated line.
     sidecar.write_bytes(f"{digest}  {path.name}\n".encode("utf-8"))
-    print(f"{path.name}: OK ({platform}, {len(names)} entries) sha256={digest}")
+    mode = "self-contained" if bundled else "slim"
+    print(f"{path.name}: OK ({platform}, {mode}, {len(names)} entries) sha256={digest}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -89,12 +112,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("paths", nargs="*", help="built one-click zips")
     ap.add_argument("--platform", choices=PLATFORMS, default=None,
                     help="override the platform inferred from the file name")
+    ap.add_argument("--allow-slim", action="store_true",
+                    help="accept a development build without the bundled runtime")
     args = ap.parse_args(argv)
     if not args.paths:
         ap.print_help()
         return 2
     for arg in args.paths:
-        check(Path(arg), args.platform)
+        check(Path(arg), args.platform, args.allow_slim)
     return 0
 
 

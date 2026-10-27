@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Start YuE2 Studio (used by start.command / start.bat).
 
-The one-click package ships without model weights. The first run only prepares
-the environment (`.venv` + dependencies + MLX runtime on Apple Silicon); models
-are downloaded from the in-app **Models** page, where the download channel
-(domestic mirror hf-mirror.com / direct huggingface.co) is switchable.
+Self-contained one-click packages ship a portable Python runtime and every
+dependency (`runtime/` + `envs/web`, plus `envs/mlx` on macOS). In that layout
+`--bundled` starts the web server directly: no bootstrap, no pip, no network.
+A source checkout / slim package keeps the legacy path (prepare `.venv` via
+`tools/bootstrap.py`, then start the server).
 
-Then starts the web server and opens the browser. Works on any Python 3.6+
-so old interpreters can still print a useful message.
+Model weights are never downloaded here — the app opens on the Models page,
+where the user downloads the core model and picks a channel (domestic mirror /
+direct Hugging Face).
 """
 import os
 import socket
@@ -21,6 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 VENV = ROOT / ".venv"
 URL = "http://127.0.0.1:7860"
+BUNDLED_RUNTIME = ROOT / "runtime" / ("python.exe" if os.name == "nt" else "bin/python3")
+BUNDLED_WEB_ENV = ROOT / "envs" / "web"
 
 
 def venv_python():
@@ -28,8 +32,13 @@ def venv_python():
     return VENV / exe
 
 
+def bundled_ready():
+    """Portable runtime + preinstalled dependencies are present."""
+    return BUNDLED_RUNTIME.exists() and BUNDLED_WEB_ENV.is_dir()
+
+
 def env_ready():
-    """The venv exists and dependency installation finished."""
+    """The developer venv exists and dependency installation finished."""
     return venv_python().exists() and (VENV / ".deps-installed").exists()
 
 
@@ -47,10 +56,20 @@ def models_ready():
 
 
 def setup_environment():
-    """Create the venv, install dependencies and the MLX runtime (no models)."""
+    """Create the venv, install dependencies (dev/slim packages only)."""
     print("First run: setting up the environment (this may take a while)…")
     return subprocess.call([sys.executable, str(ROOT / "tools" / "bootstrap.py"),
                             "--yes", "--skip-models"])
+
+
+def server_env():
+    env = dict(os.environ)
+    if bundled_ready():
+        paths = [str(BUNDLED_WEB_ENV), str(ROOT / "src")]
+        if env.get("PYTHONPATH"):
+            paths.append(env["PYTHONPATH"])
+        env["PYTHONPATH"] = os.pathsep.join(paths)
+    return env
 
 
 def wait_and_open(timeout=90):
@@ -64,21 +83,9 @@ def wait_and_open(timeout=90):
             time.sleep(0.5)
 
 
-def main():
-    if not env_ready():
-        code = setup_environment()
-        if code != 0:
-            return code
-    py = venv_python()
-    if not py.exists():
-        print("Setup did not finish; run:  python tools/bootstrap.py")
-        return 1
-    if not models_ready():
-        print("No models yet: after launch, open the “Models” page and download the core model")
-        print("(the download channel is switchable there: domestic mirror / direct Hugging Face).")
-    print("YuE2 Studio  →  %s   (Ctrl+C to stop)" % URL)
-    threading.Thread(target=wait_and_open, daemon=True).start()
-    proc = subprocess.Popen([str(py), str(ROOT / "web" / "server.py")], cwd=str(ROOT))
+def run_server(python, env=None):
+    proc = subprocess.Popen([str(python), str(ROOT / "web" / "server.py")],
+                            cwd=str(ROOT), env=env)
     try:
         return proc.wait()
     except KeyboardInterrupt:
@@ -88,6 +95,44 @@ def main():
         except subprocess.TimeoutExpired:
             proc.kill()
         return 0
+
+
+def hint_missing_models():
+    if models_ready():
+        return
+    print("No models yet: after launch, open the “Models” page and download the core model")
+    print("(the download channel is switchable there: domestic mirror / direct Hugging Face).")
+
+
+def start_bundled():
+    print("YuE2 Studio (self-contained)  →  %s   (Ctrl+C to stop)" % URL)
+    hint_missing_models()
+    threading.Thread(target=wait_and_open, daemon=True).start()
+    return run_server(BUNDLED_RUNTIME, env=server_env())
+
+
+def start_from_source():
+    if not env_ready():
+        code = setup_environment()
+        if code != 0:
+            return code
+    py = venv_python()
+    if not py.exists():
+        print("Setup did not finish; run:  python tools/bootstrap.py")
+        return 1
+    hint_missing_models()
+    print("YuE2 Studio  →  %s   (Ctrl+C to stop)" % URL)
+    threading.Thread(target=wait_and_open, daemon=True).start()
+    return run_server(py)
+
+
+def main():
+    args = set(sys.argv[1:])
+    if "--bundled" in args or (bundled_ready() and "--legacy" not in args):
+        if bundled_ready():
+            return start_bundled()
+        print("Bundled runtime is missing; falling back to the development setup.")
+    return start_from_source()
 
 
 if __name__ == "__main__":

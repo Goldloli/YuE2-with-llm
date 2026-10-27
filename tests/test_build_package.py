@@ -58,13 +58,13 @@ def _fake_pkg(tmp_path: Path, platform: str, stray: bool = False) -> Path:
 
 
 def test_self_check_accepts_platform_package(tmp_path):
-    bp.self_check(_fake_pkg(tmp_path, "macos"), "macos")
-    bp.self_check(_fake_pkg(tmp_path / "win", "win-x64"), "win-x64")
+    bp.self_check(_fake_pkg(tmp_path, "macos"), "macos", "slim")
+    bp.self_check(_fake_pkg(tmp_path / "win", "win-x64"), "win-x64", "slim")
 
 
 def test_self_check_rejects_stray_launcher(tmp_path):
     with pytest.raises(SystemExit):
-        bp.self_check(_fake_pkg(tmp_path, "macos", stray=True), "macos")
+        bp.self_check(_fake_pkg(tmp_path, "macos", stray=True), "macos", "slim")
 
 
 def _make_zip(tmp_path: Path, platform: str, other: bool = False,
@@ -83,7 +83,7 @@ def _make_zip(tmp_path: Path, platform: str, other: bool = False,
 
 def test_smoke_accepts_matching_launcher(tmp_path):
     path = _make_zip(tmp_path, "macos")
-    sp.check(path)
+    sp.check(path, allow_slim=True)
     sidecar = path.with_name(path.name + ".sha256")
     assert sidecar.exists()
     # LF only: a CRLF sidecar breaks `shasum -c` on macOS/Linux (hit on the
@@ -95,16 +95,16 @@ def test_smoke_accepts_matching_launcher(tmp_path):
 
 def test_smoke_rejects_other_platform_launcher(tmp_path):
     with pytest.raises(SystemExit):
-        sp.check(_make_zip(tmp_path, "macos", other=True))
+        sp.check(_make_zip(tmp_path, "macos", other=True), allow_slim=True)
 
 
 def test_smoke_rejects_missing_exec_bit(tmp_path):
     with pytest.raises(SystemExit):
-        sp.check(_make_zip(tmp_path, "macos", exec_bit=False))
+        sp.check(_make_zip(tmp_path, "macos", exec_bit=False), allow_slim=True)
 
 
 def test_smoke_needs_platform_hint_for_unknown_name(tmp_path):
     path = _make_zip(tmp_path, "win-x64").rename(tmp_path / "mystery.zip")
     with pytest.raises(SystemExit):
-        sp.check(path)
-    sp.check(path, platform="win-x64")
+        sp.check(path, allow_slim=True)
+    sp.check(path, platform="win-x64", allow_slim=True)
