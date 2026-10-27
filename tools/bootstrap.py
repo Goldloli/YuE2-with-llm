@@ -78,10 +78,31 @@ def install_deps(py: Path):
     marker.write_text("ok\n", encoding="utf-8")
 
 
-def models_ready() -> bool:
+def core_ready() -> bool:
     model = ROOT / "models" / "YuE2-3B" / "model.safetensors"
     vae = ROOT / "models" / "YuE2-Vae" / "model.safetensors"
     return model.exists() and model.stat().st_size > 7_000_000_000 and vae.exists()
+
+
+def mlx_variants() -> list:
+    mlx_dir = ROOT / "models" / "YuE2-3B-MLX"
+    if not mlx_dir.exists():
+        return []
+    return sorted(p.parent.name for p in mlx_dir.glob("*/model.safetensors"))
+
+
+def any_engine_ready() -> bool:
+    """A usable inference engine exists: torch core or any MLX variant."""
+    return core_ready() or bool(mlx_variants())
+
+
+def bundled_package() -> bool:
+    """True for model-embedded bundles (marker written by build_model_bundle.py).
+
+    Optional components not shipped in the bundle are fetched later from the
+    in-app Models page instead of being re-downloaded on first run.
+    """
+    return (ROOT / "models" / ".bundle").exists()
 
 
 def download(mode: str):
@@ -106,14 +127,16 @@ def main():
         install_deps(py)
 
     if not args.skip_models:
-        if models_ready():
-            print("Core models present")
+        bundled = bundled_package()
+        if any_engine_ready():
+            print("Models present (engine ready)")
         else:
             print("Downloading core models (YuE2-3B + YuE2-Vae, about 7.3 GiB) …")
             download("core")
 
-        want_extras = args.extras or ask("Fetch extras (legacy decoder + LoRA adapters, ~1.4 GiB)?",
-                                         default=True, assume_yes=args.yes)
+        want_extras = args.extras or (not bundled and ask(
+            "Fetch extras (legacy decoder + LoRA adapters, ~1.4 GiB)?",
+            default=True, assume_yes=args.yes))
         if want_extras and not (ROOT / "models" / "YuE2-Vae-legacy" / "model.safetensors").exists():
             download("extras")
 
@@ -124,11 +147,12 @@ def main():
             if not venv_python(MLX_VENV).exists():
                 run([sys.executable, "-m", "venv", str(MLX_VENV)])
                 run([venv_python(MLX_VENV), "-m", "pip", "install", "-q", "mlx", "tiktoken", "numpy", "soundfile"])
-            if not (ROOT / "models" / "YuE2-3B-MLX" / "8bit" / "model.safetensors").exists():
+            if not mlx_variants():
                 download("mlx")
 
-        want_transcribe = args.transcribe or ask("Set up audio transcription (uploads/covers, ~2.6 GiB)?",
-                                                 default=True, assume_yes=args.yes)
+        want_transcribe = args.transcribe or (not bundled and ask(
+            "Set up audio transcription (uploads/covers, ~2.6 GiB)?",
+            default=True, assume_yes=args.yes))
         if want_transcribe:
             if not venv_python(SHEETSAGE_VENV).exists():
                 run([sys.executable, "-m", "venv", str(SHEETSAGE_VENV)])

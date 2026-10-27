@@ -8,8 +8,8 @@ and SHA-256 verification against weights_manifest.json. No third-party deps.
     python tools/hf_download.py extras    # everything optional below, in one go
     python tools/hf_download.py mlx       # YuE2-3B-MLX 8-bit (Apple Silicon; alias of mlx-8bit)
 
-Fine-grained modes (used by the web model manager):
-    decoders | realaudio | lora-deathmetal | lora-jpop | lora-instrumental
+Fine-grained modes (used by the web model manager and CI bundle builds):
+    vae | decoders | realaudio | lora-deathmetal | lora-jpop | lora-instrumental
     mlx-8bit | mlx-bf16 | mlx-4bit | transcribe
 
 Set YUE2_HF_ENDPOINT to use a different mirror.
@@ -55,6 +55,9 @@ SMALL_FILES = {
 }
 
 PLANS = {
+    "vae": [
+        ("m-a-p/YuE2-Vae", "model.safetensors", "YuE2-Vae/model.safetensors", 530512720),
+    ],
     "core": [
         ("m-a-p/YuE2-3B", "model.safetensors", "YuE2-3B/model.safetensors", 7261441640),
         ("m-a-p/YuE2-Vae", "model.safetensors", "YuE2-Vae/model.safetensors", 530512720),
@@ -131,6 +134,7 @@ MLX_SMALL = [f"8bit/{name}" for name in
              ("config.json", "qwen.tiktoken", "vae_config.json", "yue2_generation_config.json")]
 
 SMALL_FOR_MODE = {
+    "vae": [("m-a-p/YuE2-Vae", "YuE2-Vae")],
     "core": [("m-a-p/YuE2-3B", "YuE2-3B"), ("m-a-p/YuE2-Vae", "YuE2-Vae")],
     "extras": [("m-a-p/YuE2-Vae-legacy", "YuE2-Vae-legacy"),
                ("Mothersuperior/YuE2-Vae-merge-0.666", "YuE2-Vae-merge"),
@@ -317,7 +321,7 @@ def run(mode):
     if mode.startswith("mlx"):
         variant = "8bit" if mode in ("mlx", "mlx-8bit") else mode.split("-", 1)[1]
         print(f"== ahmadw/YuE2-3B-MLX (config for {variant}) ==")
-        names = list(MLX_CODE) if variant == "8bit" else []
+        names = list(MLX_CODE)
         names += [f"{variant}/{n}" for n in
                   ("config.json", "qwen.tiktoken", "vae_config.json", "yue2_generation_config.json")]
         for name in names:

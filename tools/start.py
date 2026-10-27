@@ -25,10 +25,14 @@ def venv_python():
 
 
 def models_ready():
+    """A usable engine exists: torch core, or any MLX variant (Apple Silicon)."""
     model = ROOT / "models" / "YuE2-3B" / "model.safetensors"
     vae = ROOT / "models" / "YuE2-Vae" / "model.safetensors"
+    mlx_dir = ROOT / "models" / "YuE2-3B-MLX"
     try:
-        return model.exists() and model.stat().st_size > 7_000_000_000 and vae.exists()
+        if model.exists() and model.stat().st_size > 7_000_000_000 and vae.exists():
+            return True
+        return mlx_dir.exists() and any(mlx_dir.glob("*/model.safetensors"))
     except OSError:
         return False
 

@@ -1,0 +1,214 @@
+name: One-click model bundles
+
+# 内嵌模型的一键包：CI 现场从 Hugging Face 下载模型（YUE2_HF_ENDPOINT 直连），
+# 流式打包并按 ≤1.9 GiB 分卷（GitHub 单资产 2 GiB 上限），附 sha256 清单。
+#
+# 触发：
+#   - tag `models-v*`：全量 5 档并行构建 → 草稿 release → 全部绿后自动转正式
+#     （草稿期间收件人不可见半成品）。
+#   - workflow_dispatch：手动选平台/档位，产物覆盖上传滚动 release
+#     `oneclick-models-latest`（同名替换，不堆积）。
+# 不挂 push 触发：本仓库为私仓，macOS runner 分钟按 10× 计费；
+# 一次全量发布 ≈ 下载 50 GB / 5 个 job。日常验证请用 dispatch 单档。
+
+on:
+  push:
+    tags: ["models-v*"]
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "平台"
+        type: choice
+        options: [all, macos, win-x64]
+        default: all
+      tier:
+        description: "档位"
+        type: choice
+        options: [all, mini, standard, full]
+        default: standard
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUTF8: "1"
+  YUE2_HF_ENDPOINT: "https://huggingface.co"
+
+concurrency:
+  group: oneclick-models
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.setmatrix.outputs.matrix }}
+    steps:
+      - name: 计算构建矩阵（tag=全量；dispatch 按输入过滤）
+        id: setmatrix
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import itertools, json, os
+          tiers = {"macos": ("macos-latest", ["mini", "standard", "full"]),
+                   "win-x64": ("windows-latest", ["standard", "full"])}
+          if os.environ.get("EVENT") == "push":
+              want_p, want_t = "all", "all"
+          else:
+              want_p = os.environ["IN_PLATFORM"]
+              want_t = os.environ["IN_TIER"]
+          include = []
+          for platform, (os_name, tier_list) in tiers.items():
+              if want_p not in ("all", platform):
+                  continue
+              for tier in tier_list:
+                  if want_t in ("all", tier):
+                      include.append({"os": os_name, "platform": platform, "tier": tier})
+          if not include:
+              raise SystemExit("输入过滤后没有可构建的档位（win-x64 没有 mini 档）")
+          print("matrix=" + json.dumps({"include": include}))
+          EOF
+        env:
+          EVENT: ${{ github.event_name }}
+          IN_PLATFORM: ${{ inputs.platform }}
+          IN_TIER: ${{ inputs.tier }}
+      - name: 建草稿 release（tag 发布）
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # 必须显式 --repo：gh 在未 checkout 时会找 .git 并报 not a git repository
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "release $TAG 已存在（重跑场景）"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
+              --title "YuE2 Studio 模型一键包 $TAG" \
+              --notes "内嵌模型的一键包（≤1.9 GiB 分卷 + sha256 清单）。分卷合并（cat / copy /b）与校验方法见包内《使用说明》。"
+          fi
+      - name: 确保滚动 release 存在（dispatch）
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh release view oneclick-models-latest --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create oneclick-models-latest --repo "$GITHUB_REPOSITORY" \
+              --title "模型一键包 · CI 滚动产物" \
+              --notes "每次 dispatch 运行覆盖同名分卷资产。核对 sha256 清单后再合并使用。"
+          fi
+
+  build:
+    name: build (${{ matrix.platform }}/${{ matrix.tier }})
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 磁盘余量（构建前）
+        shell: bash
+        run: df -h .
+      # 标准 GitHub runner 只有 14 GB SSD（macOS 3 vCPU / 7 GB、私仓 Windows 2 vCPU / 8 GB）。
+      # 先用 TIERS 里的峰值需求（zip + 分卷 ≈ 2×zip）对比实测余量，不足才删预装工具链
+      # 腾位置：macOS 删 Xcode/模拟器缓存（≈30–40 GB），Windows 删 Android/.NET 缓存。
+      # 清理后仍不足时，build_model_bundle.py 的磁盘预检会快速失败并打印数值。
+      - name: 按需释放磁盘
+        shell: bash
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          TIER: ${{ matrix.tier }}
+        run: |
+          set -euo pipefail
+          read -r need free < <(python - <<'PY'
+          import os, shutil, sys
+          sys.path.insert(0, "packaging")
+          import build_model_bundle as bb
+          spec = bb.TIERS[(os.environ["PLATFORM"], os.environ["TIER"])]
+          print(bb.disk_need(spec), shutil.disk_usage(".").free)
+          PY
+          )
+          gib() { awk -v n="$1" 'BEGIN{printf "%.1f", n / 1073741824}'; }
+          echo "need=$(gib "$need") GiB, free=$(gib "$free") GiB"
+          if [ "$free" -ge "$need" ]; then
+            echo "磁盘已足够，跳过清理"
+            exit 0
+          fi
+          case "${RUNNER_OS}" in
+            macOS)
+              echo "清理 macOS 预装 Xcode / 模拟器缓存…"
+              sudo rm -rf /Applications/Xcode*.app || true
+              sudo rm -rf ~/Library/Developer/CoreSimulator/Caches || true
+              sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes || true
+              sudo rm -rf /Library/Caches/Homebrew || true
+              ;;
+            Windows)
+              echo "清理 Windows 预装 Android / .NET / VS 缓存…"
+              rm -rf "/c/Program Files/Android" || true
+              rm -rf "/c/Program Files (x86)/Android" || true
+              rm -rf "$LOCALAPPDATA/Android" || true
+              rm -rf "$USERPROFILE/.android" || true
+              rm -rf "$USERPROFILE/.gradle" || true
+              rm -rf "/c/Program Files/dotnet/packs" || true
+              rm -rf "/c/ProgramData/Microsoft/VisualStudio/Packages" || true
+              ;;
+            *)
+              echo "未识别的 runner OS，跳过清理"
+              ;;
+          esac
+          df -h .
+      - name: 下载模型并流式打包 + 分卷
+        shell: bash
+        run: >-
+          python packaging/build_model_bundle.py
+          --platform ${{ matrix.platform }} --tier ${{ matrix.tier }} --keep-zip
+      - name: 冒烟（zip 条目级）
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip=$(find oneclick-packages/${{ matrix.platform }} -maxdepth 1 -name '*.zip' | head -n1)
+          python packaging/smoke_package.py --bundle ${{ matrix.platform }} ${{ matrix.tier }} "$zip"
+      - name: 冒烟（分卷与清单）
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=$(find oneclick-packages/${{ matrix.platform }} -maxdepth 1 -name '*.zip.sha256' | head -n1)
+          python packaging/smoke_package.py --parts "$manifest"
+      - name: 上传到 release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "push" ]; then
+            REL="${{ github.ref_name }}"
+          else
+            REL="oneclick-models-latest"
+          fi
+          cd "oneclick-packages/${{ matrix.platform }}"
+          shopt -s nullglob
+          files=( *.part-* *.sha256 )
+          [ ${#files[@]} -gt 0 ] || { echo "没有可上传的分卷"; exit 1; }
+          gh release upload "$REL" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "已上传到 $REL：${files[*]}"
+
+  publish:
+    name: 草稿转正式
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 发布
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          echo "已发布：https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
