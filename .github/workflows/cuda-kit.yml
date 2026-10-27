@@ -95,7 +95,6 @@ jobs:
           gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           echo "已上传到 ${TAG}：${files[*]}"
       - name: 草稿转正式
-        if: github.event_name == 'workflow_dispatch'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
