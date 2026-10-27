@@ -1423,9 +1423,12 @@ function modelRowHtml(c) {
     ? `<button class="ghost-btn" data-mdl-cancel="${c.id}">${t("models.cancel")}</button>`
     : c.installed ? ""
       : `<button class="ghost-btn primary" data-mdl-download="${c.id}">${t("models.download")}</button>`;
+  const kind = c.required
+    ? `<span class="mdl-req">${t("models.required")}</span>`
+    : `<span class="mdl-req">${t("models.optional")}</span>`;
   return `<div class="mdl-row">
     <div class="mdl-info">
-      <div class="mdl-name">${esc(c.label)}${c.required ? ` <span class="mdl-req">${t("models.required")}</span>` : ""}</div>
+      <div class="mdl-name">${esc(c.label)} ${kind}</div>
       <div class="mdl-sub">${fmtSize(c.bytes)}${c.error ? ` · <span class="mdl-err">${esc(c.error)}</span>` : ""}</div>
       ${c.downloading ? `<div class="mdl-bar"><div style="width:${pct}%"></div></div>` : ""}
     </div>
@@ -1462,7 +1465,7 @@ function cudaKitRowHtml(c) {
   const reason = kit.reason ? ` · <span class="mdl-err">${esc(kit.reason)}</span>` : "";
   return `<div class="mdl-row">
     <div class="mdl-info">
-      <div class="mdl-name">${esc(c.label)}</div>
+      <div class="mdl-name">${esc(c.label)} <span class="mdl-req">${t("models.optional")}</span></div>
       <div class="mdl-sub">${size} · ${gpu}${c.error ? ` · <span class="mdl-err">${esc(c.error)}</span>` : ""}${reason}</div>
       ${c.downloading ? `<div class="mdl-bar"><div style="width:${pct}%"></div></div>` : ""}
     </div>
