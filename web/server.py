@@ -99,6 +99,14 @@ MODEL_COMPONENTS = [
      "paths": ["YuE2-3B-MLX/4bit/model.safetensors", "YuE2-3B-MLX/4bit/vae.safetensors"]},
 ]
 MODEL_COMPONENTS_BY_ID = {c["id"]: c for c in MODEL_COMPONENTS}
+
+
+def core_installed() -> bool:
+    """True when the required core model files are on disk (UI first-run gate)."""
+    core = MODEL_COMPONENTS_BY_ID["core"]
+    return all((ROOT / "models" / rel).exists() for rel in core["paths"])
+
+
 SETTINGS_FILE = DATA / "settings.json"
 SHEETSAGE_PY = ROOT / ".venv-sheetsage2" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 SHEETSAGE_MODEL = ROOT / "models" / "SheetSage2"
@@ -1242,6 +1250,7 @@ def state():
     return {"model": runner.model_status(), "device": runner.device_name(),
             "model_error": runner.pipe_error, "queue": runner.jobs.qsize(),
             "current": runner.current_id, "transcribe_available": transcribe_available(),
+            "core_installed": core_installed(),
             "mlx_available": mlx_available(), "vllm_available": vllm_available(),
             "decoder": settings.get("decoder"),
             "decoder_legacy_available": (VAE_LEGACY_DIR / "model.safetensors").exists(),

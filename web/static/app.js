@@ -5,6 +5,9 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 const audio = $("#audio-el");
 
+/* Slim packages carry no weights: on the first launch land on the Models page. */
+let firstRunHinted = false;
+
 const state = {
   songs: [],
   view: "create",          // create | library | detail
@@ -832,6 +835,11 @@ $("#model-pill").addEventListener("click", (e) => {
 });
 
 async function createSong() {
+  if (!(state.server && state.server.core_installed)) {
+    showView("models");
+    toast(t("models.coreMissing"), true);
+    return;
+  }
   const simple = state.mode === "simple";
   const style = (simple ? $("#simple-desc") : $("#adv-style")).value.trim();
   const lyrics = simple ? "" : $("#adv-lyrics").value;
@@ -2319,6 +2327,11 @@ function applyPreferences(s) {
   refreshModelPill();
   renderFeed();
   showView(s.start_view === "library" ? "library" : "create");
+  if (!s.core_installed && !firstRunHinted) {
+    firstRunHinted = true;
+    showView("models");
+    toast(t("models.firstRun"));
+  }
 }
 
 /* Generic settings row builders: every option is a .set-row + .set-seg pair. */

@@ -90,6 +90,11 @@ def test_download_source_setting_validation(server, tmp_path, monkeypatch):
     assert server.state()["download_source"] == "huggingface"
 
 
+def test_state_reports_core_installed(server):
+    """The UI uses /api/state to decide whether to land on the Models page first."""
+    assert isinstance(server.state()["core_installed"], bool)
+
+
 def test_default_lora_validation(server, tmp_path, monkeypatch):
     store = server.Settings(tmp_path / "settings.json")
     monkeypatch.setattr(server, "settings", store)

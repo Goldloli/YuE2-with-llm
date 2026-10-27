@@ -143,15 +143,13 @@ with YuE2Pipeline.from_pretrained("m-a-p/YuE2-3B", device="cuda") as pipe:
 
 ## One-click package (web studio)
 
-This fork ships a one-click package for the local web studio (`python tools/start.py` opens `http://127.0.0.1:7860`), plus a build pipeline that assembles distributable bundles:
+This fork ships a one-click package for the local web studio (`python tools/start.py` opens `http://127.0.0.1:7860`), plus a build pipeline that assembles the distributable, model-free bundle:
 
 ```bash
-python packaging/build_package.py                              # slim universal bundle (~10 MiB)
-python packaging/build_package.py --with-models --platform macos   # all models (~23 GB)
-python packaging/build_package.py --with-models --platform win-x64 # torch models (~12.4 GB)
+python packaging/build_package.py               # slim universal bundle (~10 MiB)
 ```
 
-The slim bundle carries the launchers (`start.command` / `start.bat`), the usage guide (`packaging/使用说明.md`) and the application source; models are fetched on first run and managed afterwards from the in-app **Models** page (per-component downloads with a switchable mirror / direct source). The opt-in `--with-models` bundles embed the weights instead. No bundle ever contains virtual environments or user data. See `packaging/使用说明.md` for the full walkthrough.
+The bundle carries the launchers (`start.command` / `start.bat`), the usage guide (`packaging/使用说明.md`) and the application source. **No model weights are shipped.** The first launch only prepares the environment, then the studio opens on the in-app **Models** page where every component is downloaded on demand with a switchable download channel — the China mirror (`hf-mirror.com`) or direct Hugging Face (`huggingface.co`) — and full progress/cancel/resume support. The same channel can be selected from the command line: `python tools/hf_download.py core --source mirror|huggingface`. No bundle ever contains virtual environments or user data. See `packaging/使用说明.md` for the full walkthrough.
 
 ## Cover a song
 

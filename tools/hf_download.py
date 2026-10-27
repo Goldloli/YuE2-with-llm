@@ -1,21 +1,29 @@
 #!/usr/bin/env python3
 """Portable YuE2 model downloader (Windows / macOS / Linux).
 
-Fetches model files from hf-mirror.com with parallel ranged downloads, resume,
-and SHA-256 verification against weights_manifest.json. No third-party deps.
+Fetches model files with parallel ranged downloads, resume, and SHA-256
+verification against weights_manifest.json. No third-party deps.
 
     python tools/hf_download.py core      # YuE2-3B + YuE2-Vae (required)
     python tools/hf_download.py extras    # everything optional below, in one go
     python tools/hf_download.py mlx       # YuE2-3B-MLX 8-bit (Apple Silicon; alias of mlx-8bit)
 
-Fine-grained modes (used by the web model manager and CI bundle builds):
+Fine-grained modes (used by the web model manager):
     vae | decoders | realaudio | lora-deathmetal | lora-jpop | lora-instrumental
     mlx-8bit | mlx-bf16 | mlx-4bit | transcribe
 
-Set YUE2_HF_ENDPOINT to use a different mirror.
+Download channels (also switchable in the in-app Models page):
+    mirror      domestic network, https://hf-mirror.com (default)
+    huggingface overseas network, https://huggingface.co
+
+Pick one for a single run with `--source {mirror,huggingface}` (or an arbitrary
+`--endpoint URL`). Without flags the endpoint comes from YUE2_HF_ENDPOINT, then
+from the channel saved by the app (web/data/settings.json), then defaults to the
+domestic mirror.
 """
 from __future__ import annotations
 
+import argparse
 import shutil
 import subprocess
 
@@ -29,9 +37,17 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-BASE = os.environ.get("YUE2_HF_ENDPOINT", "https://hf-mirror.com").rstrip("/")
 ROOT = Path(__file__).resolve().parents[1]
 DEST = ROOT / "models"
+SETTINGS_FILE = ROOT / "web" / "data" / "settings.json"
+
+CHANNELS = {
+    "mirror": "https://hf-mirror.com",
+    "huggingface": "https://huggingface.co",
+}
+DEFAULT_CHANNEL = "mirror"
+BASE = os.environ.get("YUE2_HF_ENDPOINT", CHANNELS[DEFAULT_CHANNEL]).rstrip("/")
+
 CHUNK = 8 << 20
 WORKERS = 12
 
@@ -154,6 +170,39 @@ SMALL_FOR_MODE = {
 
 
 CURL = shutil.which("curl")
+
+
+def saved_channel() -> str | None:
+    """Channel persisted by the app (web/data/settings.json download_source)."""
+    try:
+        data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    source = data.get("download_source") if isinstance(data, dict) else None
+    return source if source in CHANNELS else None
+
+
+def resolve_endpoint(endpoint: str | None = None, source: str | None = None) -> tuple[str, str]:
+    """Resolve the HF endpoint: CLI > env > saved app setting > domestic mirror.
+
+    Returns (endpoint, label) where label is the channel name or "custom"/"env".
+    """
+    if endpoint:
+        return endpoint.rstrip("/"), "custom"
+    if source in CHANNELS:
+        return CHANNELS[source], source
+    env = os.environ.get("YUE2_HF_ENDPOINT")
+    if env:
+        return env.rstrip("/"), "env"
+    saved = saved_channel()
+    if saved:
+        return CHANNELS[saved], saved
+    return CHANNELS[DEFAULT_CHANNEL], DEFAULT_CHANNEL
+
+
+def set_endpoint(endpoint: str):
+    global BASE
+    BASE = endpoint.rstrip("/")
 
 
 def curl_download(url, out: Path, start=None, end=None, retries=4):
@@ -304,7 +353,7 @@ def snapshot(repo, folder, skip_prefixes=()):
         if size >= CHUNK:
             download_big(repo, path, out, size)
         elif not download_small(repo, path, out):
-            raise SystemExit(1)
+            raise RuntimeError(f"download failed: {repo}/{path}")
 
 
 def run(mode):
@@ -317,7 +366,7 @@ def run(mode):
         print(f"== {repo} (small files) ==")
         for name in SMALL_FILES[repo][1]:
             if not download_small(repo, name, DEST / folder / name):
-                raise SystemExit(1)
+                raise RuntimeError(f"download failed: {repo}/{name}")
     if mode.startswith("mlx"):
         variant = "8bit" if mode in ("mlx", "mlx-8bit") else mode.split("-", 1)[1]
         print(f"== ahmadw/YuE2-3B-MLX (config for {variant}) ==")
@@ -326,7 +375,7 @@ def run(mode):
                   ("config.json", "qwen.tiktoken", "vae_config.json", "yue2_generation_config.json")]
         for name in names:
             if not download_small("ahmadw/YuE2-3B-MLX", name, DEST / "YuE2-3B-MLX" / name):
-                raise SystemExit(1)
+                raise RuntimeError(f"download failed: ahmadw/YuE2-3B-MLX/{name}")
     for repo, name, rel, size in PLANS[mode]:
         print(f"== {repo}/{name} ==")
         out = DEST / rel
@@ -335,12 +384,35 @@ def run(mode):
     print("DONE")
 
 
-def main():
-    mode = sys.argv[1] if len(sys.argv) > 1 else "core"
-    if mode not in PLANS:
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        description="Download YuE2 model files (resume + SHA-256 verification).",
+        formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
+    ap.add_argument("mode", nargs="?", default="core", help="model mode (default: core)")
+    ap.add_argument("--source", choices=sorted(CHANNELS),
+                    help="download channel: mirror (domestic) or huggingface (overseas)")
+    ap.add_argument("--endpoint", help="explicit Hugging Face endpoint URL (overrides --source)")
+    args = ap.parse_args(argv)
+
+    if args.mode not in PLANS:
         print(__doc__)
         return 2
-    run(mode)
+
+    endpoint, label = resolve_endpoint(args.endpoint, args.source)
+    set_endpoint(endpoint)
+    print(f"download source: {label} ({BASE})")
+    try:
+        run(args.mode)
+    except (RuntimeError, OSError, TimeoutError, urllib.error.URLError) as exc:
+        other = "huggingface" if label != "huggingface" else "mirror"
+        names = {"mirror": "国内镜像 hf-mirror.com", "huggingface": "国际直连 huggingface.co"}
+        print(f"\n下载失败（当前下载源：{names.get(label, label)} — {BASE}）", file=sys.stderr)
+        print(f"  原因：{exc}", file=sys.stderr)
+        print(f"  可切换下载源重试：python tools/hf_download.py {args.mode} --source {other}",
+              file=sys.stderr)
+        print("  或在应用「模型」页右上角切换下载源后重试；已下载的分片会续传。",
+              file=sys.stderr)
+        return 1
     return 0
 
 

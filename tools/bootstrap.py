@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""One-shot setup for YuE2 Studio (Windows / macOS / Linux).
+"""Environment setup for YuE2 Studio (Windows / macOS / Linux).
 
-    python tools/bootstrap.py            # interactive
-    python tools/bootstrap.py --yes      # accept all defaults
-    python tools/bootstrap.py --yes --extras --transcribe
-    python tools/bootstrap.py --skip-models --skip-deps   # check only
+The one-click package never embeds model weights: the first launch only
+prepares the environment, then the studio opens on the **Models** page where
+each component is downloaded on demand, with a switchable download channel
+(domestic mirror hf-mirror.com or direct huggingface.co).
 
-Creates .venv, installs the pinned dependencies (torch from PyPI by default;
-set YUE2_TORCH_INDEX to pick a specific CUDA wheel index), and downloads the
-required models. Everything is idempotent: existing pieces are reused.
+    python tools/bootstrap.py                    # environment only (what the launcher runs)
+    python tools/bootstrap.py --models           # also download the core models (~7.3 GiB)
+    python tools/bootstrap.py --models --extras --transcribe --mlx
+    python tools/bootstrap.py --models --download-source huggingface
+    python tools/bootstrap.py --skip-deps --skip-models     # check only
+
+Creates `.venv`, installs the pinned dependencies (torch from PyPI by default;
+set YUE2_TORCH_INDEX to pick a specific CUDA wheel index) and, on Apple Silicon,
+the MLX runtime. Everything is idempotent: existing pieces are reused.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import platform
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -25,6 +31,9 @@ VENV = ROOT / ".venv"
 SHEETSAGE_VENV = ROOT / ".venv-sheetsage2"
 MLX_VENV = ROOT / ".venv-mlx"
 MIN_PYTHON = (3, 10)
+
+CHANNELS = ("mirror", "huggingface")
+DEFAULT_CHANNEL = "mirror"
 
 sys.path.insert(0, str(ROOT / "tools"))
 
@@ -96,28 +105,142 @@ def any_engine_ready() -> bool:
     return core_ready() or bool(mlx_variants())
 
 
-def bundled_package() -> bool:
-    """True for model-embedded bundles (marker written by build_model_bundle.py).
-
-    Optional components not shipped in the bundle are fetched later from the
-    in-app Models page instead of being re-downloaded on first run.
-    """
-    return (ROOT / "models" / ".bundle").exists()
+def settings_file() -> Path:
+    return ROOT / "web" / "data" / "settings.json"
 
 
-def download(mode: str):
+def saved_channel() -> str | None:
+    """Download channel persisted by the app's Models page, if any."""
+    try:
+        data = json.loads(settings_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    source = data.get("download_source") if isinstance(data, dict) else None
+    return source if source in CHANNELS else None
+
+
+def save_channel(source: str):
+    """Persist the channel so the studio's Models page starts on the same one."""
+    if source not in CHANNELS:
+        return
+    path = settings_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {}
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            data = {}
+    if not isinstance(data, dict):
+        data = {}
+    data["download_source"] = source
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def choose_channel(assume_yes: bool, fixed: str | None = None) -> str:
+    """Pick the download channel (interactive once, then remembered)."""
+    if fixed in CHANNELS:
+        return fixed
+    current = saved_channel()
+    if current:
+        print(f"下载渠道（已保存）：{'国内镜像 hf-mirror.com' if current == 'mirror' else '国际直连 huggingface.co'}")
+        return current
+    current = DEFAULT_CHANNEL
+    if assume_yes or not sys.stdin.isatty():
+        return current
+    print("\n下载渠道 / Download source:")
+    print("  1) 国内网络 — hf-mirror.com（大陆直连，默认）")
+    print("  2) 国外网络 — huggingface.co（海外或可访问外网）")
+    hint = "1" if current == DEFAULT_CHANNEL else "2"
+    while True:
+        answer = input(f"请选择 [1/2] ({hint}): ").strip().lower()
+        if not answer:
+            selected = current
+            break
+        if answer in {"1", "mirror", "cn", "国内"}:
+            selected = "mirror"
+            break
+        if answer in {"2", "huggingface", "hf", "国外"}:
+            selected = "huggingface"
+            break
+        print("请输入 1 或 2")
+    save_channel(selected)
+    print(f"下载渠道：{'国内镜像 hf-mirror.com' if selected == 'mirror' else '国际直连 huggingface.co'}")
+    return selected
+
+
+def download(mode: str, channel: str | None = None):
     import hf_download
+    endpoint, label = hf_download.resolve_endpoint(source=channel)
+    hf_download.set_endpoint(endpoint)
+    print(f"download source: {label} ({endpoint})")
     hf_download.run(mode)
 
 
+def ensure_mlx_runtime():
+    """Install the MLX Python runtime (no weights; macOS Apple Silicon only)."""
+    if not (sys.platform == "darwin" and platform.machine() == "arm64"):
+        return
+    if venv_python(MLX_VENV).exists():
+        return
+    print("Setting up the MLX runtime (Apple Silicon) …")
+    run([sys.executable, "-m", "venv", str(MLX_VENV)])
+    run([venv_python(MLX_VENV), "-m", "pip", "install", "-q",
+         "mlx", "tiktoken", "numpy", "soundfile"])
+
+
+def setup_models(source: str | None = None, extras=False, transcribe=False,
+                 mlx=False, assume_yes=False):
+    """Download model components (only when the user asked for them)."""
+    channel = choose_channel(assume_yes=assume_yes, fixed=source)
+    if any_engine_ready():
+        print("Models present (engine ready)")
+    else:
+        print("Downloading core models (YuE2-3B + YuE2-Vae, about 7.3 GiB) …")
+        download("core", channel)
+
+    want_extras = extras or ask(
+        "Fetch extras (legacy decoder + LoRA adapters, ~1.4 GiB)?",
+        default=True, assume_yes=assume_yes)
+    if want_extras and not (ROOT / "models" / "YuE2-Vae-legacy" / "model.safetensors").exists():
+        download("extras", channel)
+
+    want_mlx = mlx or (sys.platform == "darwin" and platform.machine() == "arm64" and ask(
+        "Download the MLX weights (Apple Silicon, ~4.2 GiB, about 5x faster)?",
+        default=True, assume_yes=assume_yes))
+    if want_mlx:
+        ensure_mlx_runtime()
+        if not mlx_variants():
+            download("mlx", channel)
+
+    want_transcribe = transcribe or ask(
+        "Set up audio transcription (uploads/covers, ~2.6 GiB)?",
+        default=True, assume_yes=assume_yes)
+    if want_transcribe:
+        if not venv_python(SHEETSAGE_VENV).exists():
+            run([sys.executable, "-m", "venv", str(SHEETSAGE_VENV)])
+            run([venv_python(SHEETSAGE_VENV), "-m", "pip", "install", "-q",
+                 "torch", "torchaudio", "transformers", "safetensors", "numpy", "soundfile"])
+        if not (ROOT / "models" / "SheetSage2" / "model.safetensors").exists():
+            download("transcribe", channel)
+
+
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--yes", action="store_true", help="accept defaults, no prompts")
+    parser.add_argument("--models", action="store_true",
+                        help="download the core models now (~7.3 GiB); the app does it otherwise")
     parser.add_argument("--extras", action="store_true", help="also fetch legacy decoder + LoRA adapters")
     parser.add_argument("--transcribe", action="store_true", help="also set up audio transcription (SheetSage2)")
-    parser.add_argument("--mlx", action="store_true", help="also set up the Apple MLX engine (macOS only)")
+    parser.add_argument("--mlx", action="store_true", help="also fetch the Apple MLX weights (macOS only)")
+    parser.add_argument("--download-source", choices=CHANNELS, default=None,
+                        help="download channel for --models: mirror (domestic) or huggingface (overseas)")
     parser.add_argument("--skip-deps", action="store_true")
-    parser.add_argument("--skip-models", action="store_true")
+    parser.add_argument("--skip-models", action="store_true",
+                        help="environment only (default; model downloads live in the app)")
     args = parser.parse_args()
 
     ensure_python()
@@ -125,41 +248,25 @@ def main():
     if not args.skip_deps:
         py = ensure_venv()
         install_deps(py)
+        ensure_mlx_runtime()
 
-    if not args.skip_models:
-        bundled = bundled_package()
-        if any_engine_ready():
-            print("Models present (engine ready)")
-        else:
-            print("Downloading core models (YuE2-3B + YuE2-Vae, about 7.3 GiB) …")
-            download("core")
+    wants_models = bool(args.models or args.extras or args.transcribe or args.mlx)
+    if args.skip_models:
+        wants_models = False
+    elif not wants_models and not args.yes:
+        wants_models = ask(
+            "现在下载核心模型（YuE2-3B + YuE2-Vae，约 7.3 GiB）？\n"
+            "也可以稍后在应用「模型」页下载（可选国内/国外下载源）",
+            default=False, assume_yes=False)
 
-        want_extras = args.extras or (not bundled and ask(
-            "Fetch extras (legacy decoder + LoRA adapters, ~1.4 GiB)?",
-            default=True, assume_yes=args.yes))
-        if want_extras and not (ROOT / "models" / "YuE2-Vae-legacy" / "model.safetensors").exists():
-            download("extras")
-
-        want_mlx = args.mlx or (sys.platform == "darwin" and platform.machine() == "arm64" and ask(
-            "Set up the MLX engine (Apple Silicon, ~4.2 GiB, about 5x faster)?",
-            default=True, assume_yes=args.yes))
-        if want_mlx:
-            if not venv_python(MLX_VENV).exists():
-                run([sys.executable, "-m", "venv", str(MLX_VENV)])
-                run([venv_python(MLX_VENV), "-m", "pip", "install", "-q", "mlx", "tiktoken", "numpy", "soundfile"])
-            if not mlx_variants():
-                download("mlx")
-
-        want_transcribe = args.transcribe or (not bundled and ask(
-            "Set up audio transcription (uploads/covers, ~2.6 GiB)?",
-            default=True, assume_yes=args.yes))
-        if want_transcribe:
-            if not venv_python(SHEETSAGE_VENV).exists():
-                run([sys.executable, "-m", "venv", str(SHEETSAGE_VENV)])
-                run([venv_python(SHEETSAGE_VENV), "-m", "pip", "install", "-q",
-                     "torch", "torchaudio", "transformers", "safetensors", "numpy", "soundfile"])
-            if not (ROOT / "models" / "SheetSage2" / "model.safetensors").exists():
-                download("transcribe")
+    if wants_models:
+        setup_models(source=args.download_source, extras=args.extras,
+                     transcribe=args.transcribe, mlx=args.mlx, assume_yes=args.yes)
+    else:
+        print("\n未下载模型：启动 YuE2 Studio 后，在左侧「模型」页按需下载。")
+        print("下载源可在页面切换：国内镜像 hf-mirror.com / 国际直连 huggingface.co。")
+        if not any_engine_ready():
+            print("提示：首次生成前需要先下载「核心模型」（约 7.3 GiB）。")
 
     print("\nSetup complete. Start YuE2 Studio with:")
     if os.name == "nt":
