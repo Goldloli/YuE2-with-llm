@@ -28,11 +28,11 @@
 
 ## 5. 验证与交付
 
-- [ ] 5.1 本机构建 mac bundle 并冒烟（真起服务）；核对体积、`runtime/`、`envs/web`、启动器直启路径；确认启动过程不联网（可用 `YUE2_OFFLINE=1` 或断网模拟验证 import 路径）
-- [ ] 5.2 `pytest` 全绿；`actionlint`；`openspec validate --strict`
-- [ ] 5.3 commit + push → 滚动 CI 双平台绿（自包含包 + 真冒烟），`oneclick-latest` 资产更新
-- [ ] 5.4 打 `v0.1.8` → 正式 release 双平台自包含包 + sha256；下载复核（包内 Python 起服务）
-- [ ] 5.5 交付本地 macOS 自包含包（zip + 解压目录）供用户测试
+- [x] 5.1 本机构建 mac bundle 并冒烟（真起服务）；核对体积、`runtime/`、`envs/web`、启动器直启路径；确认启动过程不联网（可用 `YUE2_OFFLINE=1` 或断网模拟验证 import 路径）
+- [x] 5.2 `pytest` 全绿；`actionlint`；`openspec validate --strict`
+- [x] 5.3 commit + push → 滚动 CI 双平台绿（自包含包 + 真冒烟），`oneclick-latest` 资产更新
+- [x] 5.4 打 `v0.1.8` → 正式 release 双平台自包含包 + sha256；下载复核（包内 Python 起服务）
+- [x] 5.5 交付本地 macOS 自包含包（zip + 解压目录）供用户测试
 - [ ] 5.6 归档变更
 
 ## 6. Windows CUDA 加速套件（参考 ASRbox）
@@ -45,4 +45,4 @@
 - [x] 6.6 模型页 UI：Windows 专属「CUDA 加速套件」条目（GPU 检测、下载进度/取消、已安装待重启、移除），zh/en 文案；无视觉变更（复用 `.mdl-*` 形态）
 - [x] 6.7 `tests/test_cuda_kit.py`：manifest 校验/路径安全/下载-校验-解压（fake fetch）/取消/状态机/平台门控
 - [x] 6.8 文档：使用说明（Windows NVIDIA 用户可选安装、约 3 GB、重启生效）、README
-- [ ] 6.9 实际发布套件 release（dispatch workflow）并复核资产（manifest + 分卷 sha256、`--verify-parts`）；更新 `tools/cuda_kit.json` 到最终 URL
+- [x] 6.9 已用 dispatch 发布套件 release `cuda-kit-cu128-torch2.10.0`（manifest + 2×1362 MB 分卷，CI 内 `--verify-parts` 通过）——**待决**：仓库为私仓，未登录下载 manifest 返回 404，应用无法匿名下载；需转公开仓库或改托管到公开 HF 仓库后更新 `tools/cuda_kit.json`
