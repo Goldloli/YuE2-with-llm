@@ -143,13 +143,17 @@ with YuE2Pipeline.from_pretrained("m-a-p/YuE2-3B", device="cuda") as pipe:
 
 ## One-click package (web studio)
 
-This fork ships a one-click package for the local web studio (`python tools/start.py` opens `http://127.0.0.1:7860`), plus a build pipeline that assembles the distributable, model-free bundle:
+This fork ships **platform-specific** one-click packages for the local web studio (`python tools/start.py` opens `http://127.0.0.1:7860`). Each package carries exactly one launcher — `start.command` on macOS, `start.bat` on Windows — and never the other platform's launcher:
 
 ```bash
-python packaging/build_package.py               # slim universal bundle (~10 MiB)
+python packaging/build_package.py --platform macos     # oneclick-packages/macos/...-macos.zip  (~10 MiB)
+python packaging/build_package.py --platform win-x64   # oneclick-packages/win-x64/...-win-x64.zip
+python packaging/build_package.py                      # infer the platform from the build machine
 ```
 
-The bundle carries the launchers (`start.command` / `start.bat`), the usage guide (`packaging/使用说明.md`) and the application source. **No model weights are shipped.** The first launch only prepares the environment, then the studio opens on the in-app **Models** page where every component is downloaded on demand with a switchable download channel — the China mirror (`hf-mirror.com`) or direct Hugging Face (`huggingface.co`) — and full progress/cancel/resume support. The same channel can be selected from the command line: `python tools/hf_download.py core --source mirror|huggingface`. No bundle ever contains virtual environments or user data. See `packaging/使用说明.md` for the full walkthrough.
+**No model weights are shipped.** The first launch only prepares the environment, then the studio opens on the in-app **Models** page where every component is downloaded on demand with a switchable download channel — the China mirror (`hf-mirror.com`) or direct Hugging Face (`huggingface.co`) — with progress/cancel/resume. The same channel is available from the CLI: `python tools/hf_download.py core --source mirror|huggingface`.
+
+Releases: pushing to `main` refreshes the rolling `oneclick-latest` release with both platform packages; pushing a `v*` tag runs `oneclick-release.yml`, which builds both packages in parallel, smoke-tests them and publishes a versioned GitHub Release (draft until both platforms are green). See `packaging/使用说明.md` for the full walkthrough.
 
 ## Cover a song
 

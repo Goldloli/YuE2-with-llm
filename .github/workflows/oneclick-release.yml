@@ -1,0 +1,121 @@
+name: 版本发布（v* tag → mac + win 双包 release）
+
+# 用法（与另一项目一致）：push 代码后告知版本号（例如「这是 v0.1.7」），
+# agent 执行 `git tag v0.1.7 && git push origin v0.1.7`，其余全自动。
+#
+# 流程：prepare 建草稿 release → build-mac / build-windows 并行构建平台专用瘦包 +
+# 冒烟 + 上传 zip/sha256 → 两个平台都全绿后 publish 把草稿转正式。
+# 任一腿失败：publish 不执行，草稿不可见；重跑同一 tag 复用草稿并 --clobber 覆盖资产。
+#
+# 成本：私仓 macOS runner 按 10× 计费；一次发布 = mac + win 各一跑（约 2–4 分钟/腿）。
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  PYTHONUTF8: "1"
+
+concurrency:
+  group: oneclick-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 建草稿 release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # 本 job 不 checkout：gh 必须显式 --repo，否则会去找 .git 并报 not a git repository
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "release ${TAG} 已存在，复用（重跑场景）"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft \
+              --title "YuE2 Studio 一键包 ${TAG}" \
+              --notes "YuE2 Studio 双平台一键包（瘦包，不含模型）。macOS 包只含 start.command，Windows 包只含 start.bat。
+          首次启动只安装环境，随后在应用「模型」页下载模型：下载源可切换「国内镜像（hf-mirror.com）」或「国际直连（huggingface.co）」。
+          下载后请用同名 .sha256 校验；详细步骤见包内《使用说明》。"
+          fi
+
+  build-mac:
+    needs: prepare
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 构建 + 冒烟（macOS 包）
+        shell: bash
+        run: |
+          set -euo pipefail
+          python packaging/build_package.py --platform macos
+          python packaging/smoke_package.py oneclick-packages/macos/*.zip
+      - name: 上传 mac 包到 release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          zips=(oneclick-packages/macos/*.zip)
+          [ ${#zips[@]} -gt 0 ] || { echo "没有构建出 macos 包"; exit 1; }
+          zip="${zips[0]}"
+          sha="${zip}.sha256"
+          [ -f "$sha" ] || { echo "缺少 sha256：$sha"; exit 1; }
+          echo "mac 产物 $(basename "$zip")"
+          gh release upload "$TAG" "$zip" "$sha" --repo "$GITHUB_REPOSITORY" --clobber
+
+  build-windows:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 构建 + 冒烟（Windows 包）
+        shell: bash
+        run: |
+          set -euo pipefail
+          python packaging/build_package.py --platform win-x64
+          python packaging/smoke_package.py oneclick-packages/win-x64/*.zip
+      - name: 上传 win 包到 release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          zips=(oneclick-packages/win-x64/*.zip)
+          [ ${#zips[@]} -gt 0 ] || { echo "没有构建出 win-x64 包"; exit 1; }
+          zip="${zips[0]}"
+          sha="${zip}.sha256"
+          [ -f "$sha" ] || { echo "缺少 sha256：$sha"; exit 1; }
+          echo "win 产物 $(basename "$zip")"
+          gh release upload "$TAG" "$zip" "$sha" --repo "$GITHUB_REPOSITORY" --clobber
+
+  publish:
+    name: 草稿转正式
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 发布
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          echo "已发布：https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"

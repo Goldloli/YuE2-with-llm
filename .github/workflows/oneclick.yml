@@ -1,4 +1,10 @@
-name: One-click packages
+name: 一键包·滚动最新（push main）
+
+# 日常滚动产物：push main（打包相关路径）或手动触发，双平台各自构建平台专用瘦包，
+# 冒烟后覆盖上传到滚动 release `oneclick-latest`（同名资产替换，不堆积）。
+# 版本化正式发布（tag → 双包 release）见 `oneclick-release.yml`。
+#
+# 成本：私仓 macOS runner 按 10× 计费；一次运行 = mac + win 各一跑（约 1–2 分钟/腿）。
 
 on:
   push:
@@ -45,28 +51,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build slim package
+      - name: 构建平台专用瘦包
         shell: bash
-        run: python packaging/build_package.py
-      - name: Smoke test and checksum
+        run: python packaging/build_package.py --platform ${{ matrix.platform }}
+      - name: 冒烟 + sha256
         shell: bash
-        run: |
-          set -euo pipefail
-          zip_path=$(ls -t oneclick-packages/*.zip | head -n1)
-          base=$(basename "$zip_path" .zip)
-          mkdir -p dist
-          out="dist/${base}-${{ matrix.platform }}.zip"
-          cp "$zip_path" "$out"
-          python packaging/smoke_package.py "$out"
+        run: python packaging/smoke_package.py oneclick-packages/${{ matrix.platform }}/*.zip
       - uses: actions/upload-artifact@v4
         with:
           name: oneclick-${{ matrix.platform }}
-          path: dist/*
+          path: oneclick-packages/${{ matrix.platform }}/*
           if-no-files-found: error
           retention-days: 3
 
   release:
-    name: publish rolling release
+    name: 更新滚动 release
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -74,7 +73,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Update rolling release
+      - name: 覆盖上传到 oneclick-latest
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -85,7 +84,7 @@ jobs:
           if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
             gh release create "$TAG" --repo "$REPO" \
               --title "一键包（滚动最新）" \
-              --notes "YuE2 Studio 一键包（双平台源码包，不含模型）。首次启动自动完成环境安装与核心模型下载（默认镜像），其余组件在应用内「模型」页按需下载。"
+              --notes "YuE2 Studio 双平台一键包（瘦包，不含模型）。macOS 包只含 start.command，Windows 包只含 start.bat。首次启动只安装环境，随后到「模型」页下载模型（可切换国内镜像 / 国际直连）；详细步骤见包内《使用说明》。版本化正式发布见 tags（v*）。"
           fi
           for name in $(gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name'); do
             gh release delete-asset "$TAG" "$name" --repo "$REPO" --yes || true
