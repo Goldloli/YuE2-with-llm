@@ -77,7 +77,9 @@ def check(path: Path, platform: str | None = None):
         raise SystemExit(f"{path.name}: forbidden entries: {forbidden[:5]}")
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     sidecar = path.with_name(path.name + ".sha256")
-    sidecar.write_text(f"{digest}  {path.name}\n", encoding="utf-8")
+    # Write bytes so Windows runners do not turn "\n" into CRLF: shasum -c and
+    # certutil both expect a plain LF-terminated line.
+    sidecar.write_bytes(f"{digest}  {path.name}\n".encode("utf-8"))
     print(f"{path.name}: OK ({platform}, {len(names)} entries) sha256={digest}")
 
 

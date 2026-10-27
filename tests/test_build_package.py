@@ -84,7 +84,13 @@ def _make_zip(tmp_path: Path, platform: str, other: bool = False,
 def test_smoke_accepts_matching_launcher(tmp_path):
     path = _make_zip(tmp_path, "macos")
     sp.check(path)
-    assert path.with_name(path.name + ".sha256").exists()
+    sidecar = path.with_name(path.name + ".sha256")
+    assert sidecar.exists()
+    # LF only: a CRLF sidecar breaks `shasum -c` on macOS/Linux (hit on the
+    # Windows-built v0.1.7 release asset).
+    data = sidecar.read_bytes()
+    assert data.endswith(b"\n") and b"\r" not in data
+    assert data.decode("utf-8").strip().endswith(path.name)
 
 
 def test_smoke_rejects_other_platform_launcher(tmp_path):
