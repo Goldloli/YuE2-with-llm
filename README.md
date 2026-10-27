@@ -1,9 +1,11 @@
+<p align="center"><img src="assets/app-icon.png" alt="YuE2 Studio" width="128" /></p>
+
 # YuE2 Studio
 
 > **本地音乐生成工作台**：输入歌词与风格，生成整首歌（人声 + 伴奏）。
 > 基于 [YuE2](https://github.com/multimodal-art-projection/YuE) 模型做工程化封装：网页界面、模型管理、LLM 增强、自包含一键包、Windows CUDA / macOS MLX 加速。
 
-**当前版本 v0.1.11** · macOS Apple Silicon / Windows x64 · 代码 [Apache-2.0](LICENSE) · 模型权重见 [MODEL_LICENSE](MODEL_LICENSE)
+**当前版本 v0.1.12** · macOS Apple Silicon / Windows x64 · 代码 [Apache-2.0](LICENSE) · 模型权重见 [MODEL_LICENSE](MODEL_LICENSE)
 
 ![YuE2 Studio 音乐库](docs/ui-baseline/zh/library.png)
 
@@ -32,7 +34,7 @@
 ## 快速开始：一键包（推荐）
 
 1. 打开 [Releases](https://github.com/Goldloli/YuE2-with-llm/releases)：
-   - **版本 tag（如 `v0.1.11`）**：正式版本，推荐；
+   - **版本 tag（如 `v0.1.12`）**：正式版本，推荐；
    - **`oneclick-latest`**：滚动最新构建，适合尝鲜/排查。
 2. 下载对应平台的包（每个包只含自己平台的启动器）：
 
