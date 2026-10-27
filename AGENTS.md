@@ -58,7 +58,7 @@ codegraph sync                # 改动后同步索引
 
 ## 前端风格冻结
 
-`web/static/` 是对 Suno app 的像素级复刻，**视觉风格已冻结**，契约见 `openspec/specs/web-ui-design/spec.md`（冻结基线）。任何触及 `web/static/` 的提案必须对照该规格自查；改变外观/布局/组件视觉/品牌元素的提案必须在 proposal 中显式声明「视觉变更」并经用户确认。设计令牌以 `styles.css` `:root` 为唯一来源，新增样式必须复用令牌；纯文案/i18n、不可见行为修复不算视觉变更。基线截图在 `docs/ui-baseline/`。
+`web/static/` 是已冻结的暗色三栏音乐工作台视觉基线（参考主流 AI 音乐产品风格），**视觉风格已冻结**，契约见 `openspec/specs/web-ui-design/spec.md`（冻结基线）。任何触及 `web/static/` 的提案必须对照该规格自查；改变外观/布局/组件视觉/品牌元素的提案必须在 proposal 中显式声明「视觉变更」并经用户确认。设计令牌以 `styles.css` `:root` 为唯一来源，新增样式必须复用令牌；纯文案/i18n、不可见行为修复不算视觉变更。基线截图在 `docs/ui-baseline/`。
 
 ## 提示词现状
 

@@ -18,7 +18,7 @@
 | 命名 | `yue2-studio-oneclick-macos-applesilicon-<YYYYMMDD>.zip` | `yue2-studio-oneclick-win-x64-<YYYYMMDD>.zip` |
 | 输出目录 | `oneclick-packages/macos/` | `oneclick-packages/win-x64/` |
 
-（平台子目录对齐参考项目 xiaoheihe_crawler。）
+（平台子目录对齐参考项目。）
 
 ### 2. 打包实现要点
 

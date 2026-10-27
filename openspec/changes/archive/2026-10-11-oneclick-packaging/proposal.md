@@ -2,7 +2,7 @@
 
 ## Why
 
-当前「一键启动」（`start.command` / `start.bat` / `START.md`）直接摊在仓库根目录，用户分发时等于把整个仓库（含 `.venv*`、`models/`、`outputs/`、`web/data/` 用户数据）给出去。用户要求参考 `xiaoheihe_crawler` 项目的做法：**构建区（`packaging/`）+ 产物区（`oneclick-packages/`）分离**——一键包专门构建进一个文件夹，而不是散在/构建到根目录。
+当前「一键启动」（`start.command` / `start.bat` / `START.md`）直接摊在仓库根目录，用户分发时等于把整个仓库（含 `.venv*`、`models/`、`outputs/`、`web/data/` 用户数据）给出去。用户要求参考另一个内部项目的做法：**构建区（`packaging/`）+ 产物区（`oneclick-packages/`）分离**——一键包专门构建进一个文件夹，而不是散在/构建到根目录。
 
 参考项目模式（已调研）：`packaging/` 入库存放构建脚本、启动器源、使用说明、素材；`oneclick-packages/<平台>/` 为 gitignore 的产物区；产物命名 `<产品>-oneclick-<平台>-<架构>-<YYYYMMDD>.zip`；包内含自带 runtime + 启动器 + 应用代码 + 使用说明，收件人免安装双击即用。
 

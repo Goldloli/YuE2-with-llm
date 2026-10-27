@@ -2,7 +2,7 @@
 
 ## Why
 
-用户对上一版单端点 LLM 配置不满意，要求参考其另一个项目 `xiaoheihe_crawler`（sentiment-monitor）的 LLM 体系，把「LLM 配置」升级为：
+用户对上一版单端点 LLM 配置不满意，要求参考其另一个项目 一个内部项目（sentiment-monitor）的 LLM 体系，把「LLM 配置」升级为：
 
 1. **多平台模型**——按平台预设管理多个供应商配置（DeepSeek / 通义千问 / 智谱 GLM / Kimi / MiniMax / OpenAI / Ollama / 自定义），切换即用；
 2. **一键拉取模型**——从供应商 OpenAI 兼容 `/models` 拉取模型清单，选中即填默认模型（Ollama 回退原生协议）；

@@ -2,7 +2,7 @@
 
 ## Why
 
-当前一键包是「通用单包」：一份 zip 同时含 macOS 的 `start.command` 与 Windows 的 `start.bat`；CI 只是把它按平台改名上传到滚动 release `oneclick-latest`，没有版本化的正式 Release。用户要求对齐另一个项目（`xiaoheihe_crawler`）的做法：
+当前一键包是「通用单包」：一份 zip 同时含 macOS 的 `start.command` 与 Windows 的 `start.bat`；CI 只是把它按平台改名上传到滚动 release `oneclick-latest`，没有版本化的正式 Release。用户要求对齐另一个内部项目的做法：
 
 - GitHub 生成**两个独立的一键包**：macOS 专属、Windows 专属，互不含对方平台的启动器；
 - 以 **tag + GitHub Release** 形式发布：打 `v*` tag → Actions 并行构建两个包并冒烟 → 挂到该版本 release（先建草稿，两个平台都全绿后自动转正式）；

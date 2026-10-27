@@ -3,7 +3,7 @@
 ## Context
 
 - 现状：`build_package.py --platform …` 产出约 9 MB 的瘦源码包；`start.command` / `start.bat` → `tools/start.py` → 缺环境时跑 `bootstrap.py --yes --skip-models`，**第一次启动要联网 pip 安装依赖（约 1–2 GiB）**，随后才起服务。模型不随包，由应用内「模型」页下载（已有国内/国际渠道）。
-- 参照项目 `xiaoheihe_crawler` 的形态：`packaging/build_macos.sh` 下载 python-build-standalone（PBS）解出 `runtime/`，再 `pip install --target envs/<层>` 装依赖，启动器直接用包内 runtime，免安装、离线启动。
+- 参照内部项目的形态：`packaging/build_macos.sh` 下载 python-build-standalone（PBS）解出 `runtime/`，再 `pip install --target envs/<层>` 装依赖，启动器直接用包内 runtime，免安装、离线启动。
 - 体积实测（PyPI / GitHub API 查询）：PBS cpython 3.11 stripped 包 mac 25.5 MB / win 24.0 MB；torch 2.10.0 mac arm64 75.7 MB、win64 108.5 MB；transformers 11.4 MB、numpy 13.7 MB、tokenizers 7.3 MB、torchaudio ~1 MB；mac MLX 0.6 MB + mlx-metal 42.9–74.5 MB（arm64 macOS ≥14）。估算 zip：mac 250–350 MB、win 250–300 MB，均低于 GitHub 单资产 2 GiB。
 
 ## Goals / Non-Goals

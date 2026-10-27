@@ -1,13 +1,13 @@
 # Web UI 基线截图
 
-本目录是 `web/static/` 前端（Suno 像素级复刻风格）的**冻结基线截图**，与 `openspec/specs/web-ui-design/spec.md` 配套使用。任何触及 `web/static/` 的改动实施完成后，应以相同条件重新截图并与本目录对照，确认除提案声明的视觉变更外无差异。
+本目录是 `web/static/` 前端（暗色三栏音乐工作台视觉基线）的**冻结基线截图**，与 `openspec/specs/web-ui-design/spec.md` 配套使用。任何触及 `web/static/` 的改动实施完成后，应以相同条件重新截图并与本目录对照，确认除提案声明的视觉变更外无差异。
 
 ## 截图条件
 
 - 视口：**1440 × 900**（CSS 像素，Playwright `page.screenshot({ scale: "css" })`）
 - 服务：本地 `python web/server.py`（`http://127.0.0.1:7860/`）
 - 语言：`en/` 与 `zh/` 各一套（在设置弹窗「界面语言」切换）
-- 日期：2026-10-11
+- 日期：2026-10-27（library / detail 使用中性虚构示例数据，2026-10-27 重截；其余 10 张仍为 2026-10-11）
 
 ## 页面清单
 
@@ -16,7 +16,7 @@
 | `create-simple.png` | Create · 简单模式 | 侧栏「创作」，默认态 |
 | `create-advanced.png` | Create · 高级模式（展开 More Options） | 点「高级」→ 点「More Options」 |
 | `library.png` | Library · Songs | 侧栏「音乐库」 |
-| `detail.png` | 歌曲详情页 | 列表中点一首歌（基线为 Ink Moonlight） |
+| `detail.png` | 歌曲详情页 | Create 视图点列表第一行（基线为中性示例曲目 Neon Harbour） |
 | `settings.png` | 设置弹窗 | 侧栏「设置」 |
 | `models.png` | 模型页 | 侧栏「模型」 |
 | `llm.png` | LLM 配置页（供应商列表 + 试聊面板；页内下滚一屏以完整取景） | 侧栏「LLM 配置」 |

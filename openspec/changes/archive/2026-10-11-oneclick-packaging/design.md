@@ -1,6 +1,6 @@
 # Design: oneclick-packaging
 
-## 与参考项目（xiaoheihe_crawler）的对照
+## 与参考项目的对照
 
 | 维度 | 参考项目 | 本项目 | 差异原因 |
 |---|---|---|---|

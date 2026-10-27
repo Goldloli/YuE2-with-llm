@@ -48,3 +48,6 @@ compare/
 
 # CI staging for release assets
 dist/
+
+# Local QA screenshots (agent/browser tooling)
+browser-screenshots/

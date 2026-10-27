@@ -1,4 +1,4 @@
-/* YuE2 Studio frontend — Suno-replica interactions */
+/* YuE2 Studio frontend — music workspace interactions */
 "use strict";
 
 const $ = (sel) => document.querySelector(sel);

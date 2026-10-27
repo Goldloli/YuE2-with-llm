@@ -3,7 +3,7 @@
 ## Context
 
 - 现状：`packaging/build_package.py` 是通用单包构建器（两个启动器都打进去），产物 `oneclick-packages/yue2-studio-oneclick-<YYYYMMDD>.zip`；`oneclick.yml` 在 macos/windows 两个 runner 上各构建一次，然后 `cp` 改名上传到滚动 release `oneclick-latest`——两个资产内容一样。
-- 参照项目 `xiaoheihe_crawler` 的做法：`oneclick-macos.yml` / `oneclick-windows.yml` 两个滚动 workflow（push main → 各自平台包 → 滚动 release），另有 `oneclick-release.yml`（`push tags v*` → prepare 建草稿 → mac/win 并行构建+冒烟+传资产 → publish 草稿转正式）。其发布约定：用户 push 代码后口头告知版本号，agent 执行 `git tag vN && git push origin vN`，其余全自动。
+- 参照内部项目的做法：`oneclick-macos.yml` / `oneclick-windows.yml` 两个滚动 workflow（push main → 各自平台包 → 滚动 release），另有 `oneclick-release.yml`（`push tags v*` → prepare 建草稿 → mac/win 并行构建+冒烟+传资产 → publish 草稿转正式）。其发布约定：用户 push 代码后口头告知版本号，agent 执行 `git tag vN && git push origin vN`，其余全自动。
 - 用户诉求：yue 也要「GitHub 生成两个一键包 + tag 形式的 release」，收件人拿到的包只含自己平台的内容。
 
 ## Goals / Non-Goals

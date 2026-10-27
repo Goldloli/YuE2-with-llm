@@ -1,4 +1,4 @@
-"""FastAPI backend for YuE2 Studio, a Suno-style interface for YuE2.
+"""FastAPI backend for YuE2 Studio, a modern music-workstation interface for YuE2.
 
 Serves the static frontend, a library persisted to web/data/library.json, and a
 single-worker queue that drives YuE2Pipeline (plan -> semantic -> synthesize ->

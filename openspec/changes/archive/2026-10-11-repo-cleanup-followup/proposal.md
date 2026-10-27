@@ -9,7 +9,7 @@
 ### A. 删除
 
 1. **`compare/` 整个目录（66 个文件，11 MB）**——全部是一次性产物：
-   - `round01–round30-*`（29 张）：「Suno 像素级复刻」开发过程的逐轮迭代截图，最终形态已冻结在 `docs/ui-baseline/`；
+   - `round01–round30-*`（29 张）：UI 开发过程的逐轮迭代截图，最终形态已冻结在 `docs/ui-baseline/`；
    - `i18n-*`、`extras-*`、`extras2-*`、`model-pill-*`、`mlx-*`、`final-*`、`cross-settings-perf.png`、`ref-createsimple-2560.png`、`cover-model-*`（35 张）：历史变更的验证截图，对应提案已归档（描述在档，证据使命完成）；
    - `cover-options.html/.png`（2 个）：封面方案 A–D 对比 demo，仅被归档提案引用；删除后该引用成为历史记录（归档提案正文仍完整描述方案与结论）。
 2. **`outputs/bench-torch.json`**——速度基准测试的中间产物（非曲库数据），删除。
