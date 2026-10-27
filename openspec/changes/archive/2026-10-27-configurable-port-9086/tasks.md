@@ -21,6 +21,6 @@
 
 - [x] 4.1 `pytest` 全绿；`actionlint`
 - [x] 4.2 重建本地 mac 包 + `smoke_package` / `smoke_bundle`；实测双击启动监听 9086
-- [ ] 4.3 push main → 滚动包 CI 全绿（新包默认 9086）
-- [ ] 4.4 打 `v0.1.9` → 双平台自包含包构建 + 真冒烟 + release 发布
-- [ ] 4.5 归档变更（`openspec archive`）
+- [x] 4.3 push main → 滚动包 CI 全绿（新包默认 9086）
+- [x] 4.4 打 `v0.1.9` → 双平台自包含包构建 + 真冒烟 + release 发布
+- [x] 4.5 归档变更（`openspec archive`）
